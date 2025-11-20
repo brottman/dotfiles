@@ -1,0 +1,22 @@
+# Nix-specific ignores
+result
+result-*
+.dirlocals
+
+# Environment-specific files
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Development
+.vscode/
+.idea/
+
+# Build artifacts
+*.o
+*.so
+*.a
+
+# Generated flake lock
+flake.lock

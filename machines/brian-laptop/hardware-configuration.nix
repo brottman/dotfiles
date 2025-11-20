@@ -1,0 +1,40 @@
+# Laptop hardware configuration
+{ config, lib, pkgs, ... }:
+
+{
+  imports = [ ];
+
+  # Boot configuration
+  boot.initrd.kernelModules = [ ];
+  boot.kernelModules = [ ];
+  boot.extraModulePackages = [ ];
+  
+  # Bootloader settings for laptop (UEFI)
+  boot.loader.systemd-boot.enable = true;
+  boot.loader.efi.canTouchEfiVariables = true;
+
+  # File systems - REPLACE UUIDs with actual device UUIDs from `nixos-generate-config`
+  fileSystems."/" = {
+    device = "/dev/disk/by-uuid/REPLACE-WITH-UUID";
+    fsType = "ext4";
+  };
+
+  fileSystems."/boot" = {
+    device = "/dev/disk/by-uuid/REPLACE-WITH-BOOT-UUID";
+    fsType = "vfat";
+    options = [ "defaults" "noatime" ];
+  };
+
+  swapDevices = [
+    { device = "/dev/disk/by-uuid/REPLACE-WITH-SWAP-UUID"; }
+  ];
+
+  # Networking
+  networking.useDHCP = lib.mkDefault true;
+
+  # Hardware
+  nixpkgs.hostPlatform = lib.mkDefault "x86_64-linux";
+  
+  # Laptop-specific settings
+  services.tlp.enable = true; # Power management
+}
