@@ -1,25 +1,25 @@
 [1 os][Skylight]
-command=cd /data/Notes/Python/Skylight/ && sudo sh ./start.sh
+command=cd /data/Seafile/Brian/Python/Skylight/ && python manage.py runserver
 name=Skylight
 tooltip=
 
-[1 os][Skylight - superheavy]
-command=cd /datapool/brian/Notes/Python/Skylight && python /datapool/brian/Notes/Python/Skylight/manage.py runserver [::]:8000
-name=Skylight - superheavy
+[1 os][conda]
+command=conda-shell
+name=conda
 tooltip=
 
 [1 os][copy konsole]
-command=cp ~/.config/konsolerc /data/Notes/dotfiles/brian-laptop/konsole/;\ncp ~/.config/konsolequickcommandsconfig /data/Notes/dotfiles/brian-laptop/konsole/;\ncp ~/.config/konsolesshconfig /data/Notes/dotfiles/brian-laptop/konsole/;
+command=cp ~/.config/konsolequickcommandsconfig /data/Seafile/Brian/dotfiles/machines/brian-laptop/konsole/;\ncp ~/.config/konsolesshconfig /data/Seafile/Brian/dotfiles/machines/brian-laptop/konsole/;
 name=copy konsole
 tooltip=
 
 [1 os][nixos gc]
-command=sh /data/Seafile/Brian/nixos/manage-nixos.sh gc
+command=sh /data/Seafile/Brian/dotfiles/manage-nixos.sh gc
 name=nixos gc
 tooltip=
 
 [1 os][nixos switch]
-command=sh /data/Seafile/Brian/nixos/manage-nixos.sh switch brian-laptop -v
+command=sh /data/Seafile/Brian/dotfiles/manage-nixos.sh switch brian-laptop -v
 name=nixos switch
 tooltip=
 

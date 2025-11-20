@@ -2,10 +2,41 @@
 {
   # Required by Home Manager; set once and bump only after reading release notes.
   home.stateVersion = "25.05";
+  
+  # Autostart seafile-client
+  systemd.user.services.seafile-client = {
+    Unit = {
+      Description = "Seafile Client";
+      After = [ "graphical-session.target" ];
+    };
+    Service = {
+      ExecStart = "${pkgs.seafile-client}/bin/seafile-applet";
+      Restart = "on-failure";
+    };
+    Install = {
+      WantedBy = [ "graphical-session.target" ];
+    };
+  };
+  
   programs.plasma = {
     enable = true;
     workspace = {
       lookAndFeel = "org.kde.breezetwilight.desktop";
+    };
+    kscreenlocker = {
+      autoLock = false;
+    };
+    configFile = {
+      ksmserverrc = {
+        General = {
+          loginMode = "emptySession";
+        };
+      };
+      taskmanagerrc = {
+        Taskbar = {
+          GroupingStrategy = 0;
+        };
+      };
     };
     panels = [
       {

@@ -14,6 +14,11 @@
     device = "/dev/sda";
   };
 
+  # ZFS support
+  boot.supportedFilesystems = [ "zfs" ];
+  services.zfs.autoScrub.enable = true;
+  services.zfs.trim.enable = true;
+
   # Networking
   networking.hostName = "backup";
   networking.networkmanager.enable = true;

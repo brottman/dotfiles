@@ -7,11 +7,11 @@
     ../../common/machine-secrets.nix
   ];
 
-  # Enable experimental features
-  nix.settings.experimental-features = [ "nix-command" "flakes" ];
-
   # Allow unfree packages
   nixpkgs.config.allowUnfree = true;
+
+  # Allow insecure packages
+  nixpkgs.config.permittedInsecurePackages = [ "ventoy-1.1.07" ];
 
   # Bootloader
   boot.loader.systemd-boot.enable = true;
@@ -164,18 +164,34 @@
 
   # Additional packages for laptop
   environment.systemPackages = with pkgs; [
+    anki
     bluez
     bluez-tools
+    code-cursor
+    dtrx # file extractor
+    exiftool
+    ffmpeg
     filezilla
+    fsearch
+    gimp
     gocryptfs
     joplin-desktop
     lutris
+    pinta
+    prismlauncher
+    rclone
+    restic
     shellcheck
     seafile-client
     srm
     thunderbird
+    qbittorrent
+    scrcpy
+    gzdoom
+    ventoy
     vlc
     vscode
+    wine
   ];
 
   # System state version (override common default)

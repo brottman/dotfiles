@@ -28,7 +28,7 @@
   # System packages available on all machines
   environment.systemPackages = with pkgs; [
     aria2
-    #conda
+    conda
     git
     vim
     nano

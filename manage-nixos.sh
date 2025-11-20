@@ -134,7 +134,7 @@ cmd_build() {
     echo "Building $machine configuration..."
     cd "$FLAKE_PATH"
     # shellcheck disable=SC2086
-    nix build ".#nixosConfigurations.$machine.config.system.build.toplevel" --extra-experimental-features nix-command --extra-experimental-features flakes $verbose_flags
+    nix build ".#nixosConfigurations.$machine.config.system.build.toplevel" --extra-experimental-features nix-command --extra-experimental-features flakes -o result $verbose_flags
 }
 
 cmd_dry_run() {
