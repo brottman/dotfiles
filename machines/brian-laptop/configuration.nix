@@ -166,7 +166,6 @@
   environment.systemPackages = with pkgs; [
     bluez
     bluez-tools
-    conda
     filezilla
     gocryptfs
     joplin-desktop

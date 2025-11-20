@@ -1,4 +1,4 @@
-# Backup server hardware configuration
+# Laptop hardware configuration
 { config, lib, pkgs, modulesPath, ... }:
 
 {

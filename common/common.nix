@@ -3,7 +3,7 @@
 
 {
   # System settings
-  time.timeZone = "UTC";
+  time.timeZone = "America/New_York";
   i18n.defaultLocale = "en_US.UTF-8";
 
   # Nix settings
@@ -12,6 +12,7 @@
       auto-optimise-store = true;
       cores = 0;
       max-jobs = "auto";
+      experimental-features = [ "nix-command" "flakes" ];
     };
     gc = {
       automatic = true;
@@ -20,8 +21,14 @@
     };
   };
 
+  # Boot environment cleanup
+  boot.loader.systemd-boot.configurationLimit = 10;
+  boot.loader.timeout = 1;
+
   # System packages available on all machines
   environment.systemPackages = with pkgs; [
+    aria2
+    #conda
     git
     vim
     nano
@@ -31,6 +38,7 @@
     btop
     tmux
     openssh
+    shellcheck
   ];
 
   # User configuration
@@ -39,7 +47,7 @@
     home = "/home/brian";
     createHome = true;
     shell = pkgs.bash;
-    extraGroups = [ "wheel" "networkmanager" "docker" ];
+    extraGroups = [ "wheel" "networkmanager" "docker" "libvirtd" "kvm" ];
   };
 
   # Sudo configuration
