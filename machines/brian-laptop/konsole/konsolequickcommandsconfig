@@ -8,9 +8,9 @@ command=conda-shell
 name=conda
 tooltip=
 
-[1 os][copy konsole]
-command=cp ~/.config/konsolequickcommandsconfig /data/Seafile/Brian/dotfiles/machines/brian-laptop/konsole/;\ncp ~/.config/konsolesshconfig /data/Seafile/Brian/dotfiles/machines/brian-laptop/konsole/;
-name=copy konsole
+[1 os][git commit]
+command=# shellcheck disable=SC2164\n\ncp ~/.config/konsolequickcommandsconfig /data/Seafile/Brian/dotfiles/machines/brian-laptop/konsole/;\ncp ~/.config/konsolesshconfig /data/Seafile/Brian/dotfiles/machines/brian-laptop/konsole/;\n\ncd /data/Seafile/Brian/dotfiles;
+name=git commit
 tooltip=
 
 [1 os][nixos gc]

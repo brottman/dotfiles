@@ -5,7 +5,6 @@
   imports = [
     ../../common/common.nix
     ../../common/machine-secrets.nix
-    ./hardware-configuration.nix
   ];
 
   # Bootloader
