@@ -9,7 +9,7 @@ name=conda
 tooltip=
 
 [1 os][git commit]
-command=# shellcheck disable=SC2164\n\ncp ~/.config/konsolequickcommandsconfig /data/Seafile/Brian/dotfiles/machines/brian-laptop/konsole/;\ncp ~/.config/konsolesshconfig /data/Seafile/Brian/dotfiles/machines/brian-laptop/konsole/;\n\ncd /data/Seafile/Brian/dotfiles;
+command=# shellcheck disable=SC2164\n\ncp ~/.config/konsolequickcommandsconfig /data/Seafile/Brian/dotfiles/machines/brian-laptop/konsole/;\ncp ~/.config/konsolesshconfig /data/Seafile/Brian/dotfiles/machines/brian-laptop/konsole/;\necho "------------";\ncd /data/Seafile/Brian/dotfiles;\ngit add .;\ngit commit -m "update";\ngit push;
 name=git commit
 tooltip=
 
