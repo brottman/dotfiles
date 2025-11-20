@@ -1,49 +1,61 @@
-# Laptop home-manager configuration
 { config, pkgs, ... }:
-
 {
-  home.homeDirectory = "/home/brian";
+  # Required by Home Manager; set once and bump only after reading release notes.
   home.stateVersion = "25.05";
-  programs.home-manager.enable = true;
-
-  # Shell configuration
-  programs.bash = {
+  programs.plasma = {
     enable = true;
-    bashrcExtra = ''
-      # Custom bash configuration for laptop
-      export EDITOR=vim
-      alias ls="ls --color=auto"
-      alias ll="ls -lh"
-      alias battery="upower -e | grep BAT"
-    '';
-  };
-
-  # Git configuration
-  programs.git = {
-    enable = true;
-    userName = "Your Name";
-    userEmail = "you@example.com";
-    extraConfig = {
-      core.editor = "vim";
-      pull.rebase = true;
+    workspace = {
+      lookAndFeel = "org.kde.breezetwilight.desktop";
+    };
+    panels = [
+      {
+        location = "bottom";
+        height = 45;
+        floating = false;
+      }
+    ];
+    powerdevil = {
+      general = {
+        pausePlayersOnSuspend = false;
+      };
+      AC = {
+        autoSuspend.action = "nothing";
+        powerButtonAction = "shutDown";
+        whenLaptopLidClosed = "doNothing";
+      };
+      battery = {
+        autoSuspend.action = "nothing";
+        powerButtonAction = "shutDown";
+        whenLaptopLidClosed = "turnOffScreen";
+      };
+      lowBattery = {
+        autoSuspend.action = "nothing";
+        powerButtonAction = "shutDown";
+        whenLaptopLidClosed = "turnOffScreen";
+      };
     };
   };
 
-  # Vim configuration
-  programs.vim = {
+  programs.firefox = {
     enable = true;
-    settings = {
-      number = true;
-      tabstop = 4;
-      shiftwidth = 4;
+    policies = {
+      ExtensionSettings = {
+        "{446900e4-71c2-419f-a6a7-df9c091e268b}" = {
+          install_url = "https://addons.mozilla.org/firefox/downloads/latest/bitwarden-password-manager/latest.xpi";
+          installation_mode = "force_installed";
+        };
+        "uBlock0@raymondhill.net" = {
+          install_url = "https://addons.mozilla.org/firefox/downloads/latest/ublock-origin/latest.xpi";
+          installation_mode = "force_installed";
+        };
+      };
+    };
+    profiles.brian = {
+      isDefault = true;
+      settings = {
+        "identity.fxaccounts.account.device.name" = "brian-laptop";
+      };
     };
   };
 
-  # Home packages
-  home.packages = with pkgs; [
-    neofetch
-    ripgrep
-    fd
-    acpi
-  ];
 }

@@ -37,10 +37,14 @@ Commands:
   status [MACHINE]      Show status of a machine
   gc                    Garbage collect old generations
 
+Options:
+  -v, --verbose         Show verbose output during build
+  --show-trace          Show full stack traces for errors
+
 Examples:
   $0 switch brian-laptop
-  $0 build superheavy
-  $0 rebuild-all
+  $0 build superheavy --verbose
+  $0 rebuild-all --show-trace
   $0 update
   $0 list-machines
 
@@ -57,6 +61,26 @@ check_machine() {
 
 cmd_switch() {
     local machine="${1:-}"
+    local verbose_flags=""
+    
+    # Parse flags
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -v|--verbose)
+                verbose_flags="--verbose"
+                shift
+                ;;
+            --show-trace)
+                verbose_flags="$verbose_flags --show-trace"
+                shift
+                ;;
+            *)
+                machine="$1"
+                shift
+                ;;
+        esac
+    done
+    
     if [[ -z "$machine" ]]; then
         machine=$(get_current_machine)
         if [[ -z "$machine" ]]; then
@@ -70,11 +94,32 @@ cmd_switch() {
     check_machine "$machine"
     echo "Switching to $machine configuration..."
     cd "$FLAKE_PATH"
-    sudo nixos-rebuild switch --flake ".#$machine"
+    # shellcheck disable=SC2086
+    sudo nixos-rebuild switch --flake ".#$machine" $verbose_flags
 }
 
 cmd_build() {
     local machine="${1:-}"
+    local verbose_flags=""
+    
+    # Parse flags
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -v|--verbose)
+                verbose_flags="--verbose"
+                shift
+                ;;
+            --show-trace)
+                verbose_flags="$verbose_flags --show-trace"
+                shift
+                ;;
+            *)
+                machine="$1"
+                shift
+                ;;
+        esac
+    done
+    
     if [[ -z "$machine" ]]; then
         machine=$(get_current_machine)
         if [[ -z "$machine" ]]; then
@@ -88,7 +133,8 @@ cmd_build() {
     check_machine "$machine"
     echo "Building $machine configuration..."
     cd "$FLAKE_PATH"
-    nix build ".#nixosConfigurations.$machine.config.system.build.toplevel"
+    # shellcheck disable=SC2086
+    nix build ".#nixosConfigurations.$machine.config.system.build.toplevel" --extra-experimental-features nix-command --extra-experimental-features flakes $verbose_flags
 }
 
 cmd_dry_run() {
@@ -112,14 +158,14 @@ cmd_dry_run() {
 cmd_update() {
     echo "Updating all flake inputs..."
     cd "$FLAKE_PATH"
-    nix flake update
+    nix flake update --extra-experimental-features nix-command --extra-experimental-features flakes
     echo "Flake inputs updated successfully"
 }
 
 cmd_update_nixpkgs() {
     echo "Updating nixpkgs..."
     cd "$FLAKE_PATH"
-    nix flake update nixpkgs
+    nix flake update nixpkgs --extra-experimental-features nix-command --extra-experimental-features flakes
     echo "Nixpkgs updated successfully"
 }
 
@@ -176,6 +222,25 @@ cmd_status() {
 }
 
 cmd_rebuild_all() {
+    local verbose_flags=""
+    
+    # Parse flags
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -v|--verbose)
+                verbose_flags="--verbose"
+                shift
+                ;;
+            --show-trace)
+                verbose_flags="$verbose_flags --show-trace"
+                shift
+                ;;
+            *)
+                shift
+                ;;
+        esac
+    done
+    
     echo "Building all machine configurations..."
     cd "$FLAKE_PATH"
     
@@ -184,7 +249,8 @@ cmd_rebuild_all() {
     for machine in "${MACHINES[@]}"; do
         echo ""
         echo "Building $machine..."
-        if nix build ".#nixosConfigurations.$machine.config.system.build.toplevel" 2>&1; then
+        # shellcheck disable=SC2086
+        if nix build ".#nixosConfigurations.$machine.config.system.build.toplevel" --extra-experimental-features nix-command --extra-experimental-features flakes $verbose_flags 2>&1; then
             echo "✓ $machine built successfully"
         else
             echo "✗ Failed to build $machine"
@@ -204,8 +270,17 @@ cmd_rebuild_all() {
 
 cmd_gc() {
     echo "Running garbage collection..."
-    nix-collect-garbage --delete-older-than 7d
+    
+    # Delete old generations from boot loader
+    echo "Deleting old boot entries..."
+    sudo nix-collect-garbage -d
+    
+    # Clean up unused store paths
+    echo "Cleaning up unused store paths..."
+    sudo nix store gc --debug
+    
     echo "Garbage collection complete"
+    echo "Note: Run 'nix-collect-garbage --delete-older-than 7d' to also delete generations older than 7 days"
 }
 
 main() {

@@ -13,7 +13,6 @@ This repository contains a NixOS flakes configuration that manages three differe
 	│   ├── brian-laptop/
 	│   │   ├── configuration.nix        # Laptop-specific config
 	│   │   ├── hardware-configuration.nix
-	│   │   └── home.nix                 # Home-manager config
 	│   ├── superheavy/
 │       ├── configuration.nix        # Server-specific config
 │       └── hardware-configuration.nix
@@ -40,13 +39,7 @@ sudo nixos-generate-config --no-filesystems --show-hardware-config > path/to/har
 
 Update the UUIDs in each `hardware-configuration.nix` file with actual values from your system.
 
-### 2. Update User Configuration
-
-Edit the home-manager configurations in each machine's `home.nix`:
-- Set your Git username and email
-- Adjust package selections as needed
-
-### 3. Build and Switch
+### 2. Build and Switch
 
 To apply the configuration on each machine:
 
@@ -85,7 +78,6 @@ To update specific inputs:
 
 ```bash
 nix flake update nixpkgs
-nix flake update home-manager
 ```
 
 ### Enter Development Shell
@@ -100,7 +92,7 @@ nix develop
 ### Adding a New Machine
 
 1. Create a new directory under `machines/`
-2. Create `configuration.nix`, `hardware-configuration.nix`, and optionally `home.nix`
+2. Create `configuration.nix` and `hardware-configuration.nix`
 3. Add a new entry to `nixosConfigurations` in `flake.nix`
 4. Customize settings as needed
 
@@ -141,8 +133,11 @@ experimental-features = nix-command flakes
 ### Hardware configuration issues
 Run `sudo nixos-generate-config` on each machine to get accurate hardware information.
 
-### Home-manager issues
-Ensure `home-manager` and `nixpkgs` versions are compatible by using the `follows` directive in `flake.nix`.
+### Lockfile cleanup
+If your `flake.lock` references inputs you have removed from `flake.nix`, recreate the lockfile to prune them:
+```
+nix flake lock --recreate-lock-file
+```
 
 ## Notes
 

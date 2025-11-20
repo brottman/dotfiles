@@ -1,15 +1,19 @@
 {
   description = "NixOS configuration for multiple machines using flakes";
 
-  inputs = {
-    nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
-    home-manager = {
-      url = "github:nix-community/home-manager/master";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
+  nixConfig = {
+    experimental-features = [ "nix-command" "flakes" ];
   };
 
-  outputs = { self, nixpkgs, home-manager }:
+  inputs = {
+    nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
+    home-manager.url = "github:nix-community/home-manager";
+    home-manager.inputs.nixpkgs.follows = "nixpkgs";
+    plasma-manager.url = "github:pjones/plasma-manager";
+    plasma-manager.inputs.nixpkgs.follows = "nixpkgs";
+  };
+
+  outputs = { self, nixpkgs, home-manager, plasma-manager }:
     let
       system = "x86_64-linux";
       pkgs = nixpkgs.legacyPackages.${system};
@@ -26,7 +30,10 @@
             {
               home-manager.useGlobalPkgs = true;
               home-manager.useUserPackages = true;
-              home-manager.users.user = import ./machines/brian-laptop/home.nix;
+              home-manager.backupFileExtension = "backup";
+              home-manager.users.brian = import ./machines/brian-laptop/home.nix;
+              # Make plasma-manager available (renamed: homeManagerModules -> homeModules; attr is plasma-manager)
+              home-manager.sharedModules = [ plasma-manager.homeModules.plasma-manager ];
             }
           ];
         };
@@ -40,12 +47,21 @@
           ];
         };
 
-        # Docker machine configuration
+        # Server machine configuration
         docker = nixpkgs.lib.nixosSystem {
           inherit system;
           modules = [
             ./machines/docker/configuration.nix
             ./machines/docker/hardware-configuration.nix
+          ];
+        };
+
+        # Server machine configuration
+        backup = nixpkgs.lib.nixosSystem {
+          inherit system;
+          modules = [
+            ./machines/backup/configuration.nix
+            ./machines/backup/hardware-configuration.nix
           ];
         };
       };

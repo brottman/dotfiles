@@ -1,10 +1,11 @@
-# Server machine configuration (minimal, no GUI)
+# Server machine configuration
 { config, pkgs, ... }:
 
 {
   imports = [
     ../../common/common.nix
     ../../common/machine-secrets.nix
+    ./hardware-configuration.nix
   ];
 
   # Bootloader
@@ -22,14 +23,18 @@
 
   # Server packages
   environment.systemPackages = with pkgs; [
+    docker
+    docker-compose
     nginx
     postgresql
     redis
-    docker
   ];
 
   # Enable Docker
-  virtualisation.docker.enable = true;
+  virtualisation.docker = {
+    enable = true;
+    autoPrune.enable = true;
+  };
 
   # Nginx
   services.nginx = {
@@ -85,7 +90,7 @@
     # Allow Docker to manage its own ports
     extraCommands = ''iptables -A INPUT -i docker0 -j ACCEPT'';
     extraStopCommands = ''iptables -D INPUT -i docker0 -j ACCEPT'';
-  };}
+  };
 
   # System state version (override common default)
   system.stateVersion = "25.05";

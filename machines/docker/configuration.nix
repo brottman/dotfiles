@@ -1,10 +1,11 @@
-# Docker machine configuration (minimal, Docker-only)
+# Server machine configuration
 { config, pkgs, ... }:
 
 {
   imports = [
     ../../common/common.nix
     ../../common/machine-secrets.nix
+    ./hardware-configuration.nix
   ];
 
   # Bootloader
@@ -20,16 +21,37 @@
   # No GUI
   services.xserver.enable = false;
 
-  # Docker packages
+  # Server packages
   environment.systemPackages = with pkgs; [
     docker
     docker-compose
+    nginx
+    postgresql
+    redis
   ];
 
   # Enable Docker
   virtualisation.docker = {
     enable = true;
     autoPrune.enable = true;
+  };
+
+  # Nginx
+  services.nginx = {
+    enable = false; # Set to true when ready to deploy
+    virtualHosts."example.com" = {
+      forceSSL = true;
+      enableACME = true;
+      locations."/" = {
+        proxyPass = "http://localhost:3000";
+      };
+    };
+  };
+
+  # Security.acme for SSL certificates
+  security.acme = {
+    acceptTerms = true;
+    defaults.email = "brottman@gmail.com";
   };
 
   # Disable sleep/suspend
@@ -40,6 +62,9 @@
     AllowSuspendThenHibernate=no
     AllowHybridSleep=no
   '';
+
+  # Fail2ban
+  services.fail2ban.enable = true;
 
   # SSH configuration for docker server
   services.openssh = {
@@ -53,13 +78,14 @@
       AllowUsers = [ "user" ];
       ClientAliveInterval = 300;
       ClientAliveCountMax = 2;
+      MaxAuthTries = 3;
     };
   };
 
   # Firewall
   networking.firewall = {
     enable = true;
-    allowedTCPPorts = [ 2222 ]; # SSH on non-standard port
+    allowedTCPPorts = [ 2222 80 443 ]; # SSH on non-standard port, HTTP, HTTPS
     allowedUDPPorts = [ ];
     # Allow Docker to manage its own ports
     extraCommands = ''iptables -A INPUT -i docker0 -j ACCEPT'';

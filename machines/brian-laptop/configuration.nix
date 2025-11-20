@@ -7,31 +7,80 @@
     ../../common/machine-secrets.nix
   ];
 
+  # Enable experimental features
+  nix.settings.experimental-features = [ "nix-command" "flakes" ];
+
+  # Allow unfree packages
+  nixpkgs.config.allowUnfree = true;
+
   # Bootloader
   boot.loader.systemd-boot.enable = true;
   boot.loader.efi.canTouchEfiVariables = true;
+
+  # Use latest kernel
+  boot.kernelPackages = pkgs.linuxPackages_latest;
+
+  # Enable bcachefs support
+  boot.supportedFilesystems = [ "bcachefs" ];
+
+  # Virtualization
+  boot.kernelModules = [ "kvm-intel" ];
+  boot.extraModprobeConfig = "options kvm_intel nested=1";
+
+  # Quiet boot
+  boot.kernelParams = [
+    "quiet"
+    "loglevel=3"
+  ];
+  boot.consoleLogLevel = 0;
+  boot.initrd.verbose = false;
+
+  # Disable Plymouth
+  boot.plymouth.enable = false;
 
   # Networking
   networking.hostName = "laptop";
   networking.networkmanager.enable = true;
 
-  # Graphics (Intel integrated)
+  # Graphics (Intel integrated + NVIDIA)
   services.xserver = {
     enable = true;
-    videoDrivers = [ "intel" ];
-    desktopManager.plasma5.enable = true;
-    displayManager.sddm.enable = true;
-    displayManager.sddm.wayland.enable = true;
+    videoDrivers = [ "nvidia" ];
+  };
+  services.desktopManager.plasma6.enable = true;
+  services.displayManager.sddm.enable = true;
+  services.displayManager.sddm.wayland.enable = true;
+  
+  # Disable KDE Plasma's power button handler
+  environment.etc."xdg/kdedefaults/powermanagementrc".text = ''
+    [General]
+    powerButtonAction=0
+  '';
+  services.displayManager.autoLogin = {
+    enable = true;
+    user = "brian";
   };
 
   # Intel graphics
-  hardware.opengl = {
+  hardware.graphics = {
     enable = true;
-    driSupport = true;
+  };
+
+  # NVIDIA graphics
+  hardware.nvidia = {
+    modesetting.enable = true;
+    powerManagement.enable = true;
+    powerManagement.finegrained = true;
+    prime.offload.enable = true;
+    prime.intelBusId = "PCI:0:2:0";
+    prime.nvidiaBusId = "PCI:1:0:0";
+    package = config.boot.kernelPackages.nvidiaPackages.production;
+    open = false;
+    nvidiaSettings = true;
   };
 
   # Power management for laptop
-  services.power-profiles-daemon.enable = true;
+  services.power-profiles-daemon.enable = false;
   services.tlp = {
     enable = true;
     settings = {
@@ -60,26 +109,48 @@
   '';
 
   # Power button action
-  services.logind.extraConfig = ''
-    HandlePowerKey=poweroff
-  '';
+  services.logind.settings = {
+    Login = {
+      HandlePowerKey = "poweroff";
+    };
+  };
 
   # Sound
-  hardware.pulseaudio.enable = false;
+  services.pulseaudio.enable = false;
   services.pipewire = {
     enable = true;
     pulse.enable = true;
     alsa.enable = true;
   };
 
-  # Trackpad
-  services.xserver.libinput = {
+  # Bluetooth
+  hardware.bluetooth = {
     enable = true;
-    trackpad = {
+    powerOnBoot = true;
+    settings = {
+      General = {
+        Enable = "Source,Sink,Media,Socket";
+      };
+    };
+  };
+  services.blueman.enable = true;
+
+  # Trackpad
+  services.libinput = {
+    enable = true;
+    touchpad = {
       naturalScrolling = true;
       tapping = true;
     };
   };
+
+  # Virtualization
+  virtualisation.libvirtd = {
+    enable = true;
+    onBoot = "start";
+  };
+  virtualisation.spiceUSBRedirection.enable = true;
+  programs.virt-manager.enable = true;
 
   # Firewall
   networking.firewall = {
@@ -88,12 +159,24 @@
     allowedUDPPorts = [ ];
   };
 
+  # Passwordless sudo for wheel group
+  security.sudo.wheelNeedsPassword = false;
+
   # Additional packages for laptop
   environment.systemPackages = with pkgs; [
-    firefox
-    vscode
-    thunderbird
+    bluez
+    bluez-tools
+    conda
+    filezilla
+    gocryptfs
+    joplin-desktop
     lutris
+    shellcheck
+    seafile-client
+    srm
+    thunderbird
+    vlc
+    vscode
   ];
 
   # System state version (override common default)
