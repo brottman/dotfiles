@@ -176,6 +176,7 @@
     gimp
     gocryptfs
     joplin-desktop
+    lmstudio
     lutris
     pinta
     prismlauncher
@@ -187,6 +188,7 @@
     thunderbird
     qbittorrent
     scrcpy
+    steam
     gzdoom
     ventoy
     vlc

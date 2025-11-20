@@ -37,6 +37,22 @@
           GroupingStrategy = 0;
         };
       };
+      dolphinrc = {
+        General = {
+          ShowStatusBar = true;
+        };
+        "General/Toolbar" = {
+          ToolBarIconSize = 0;
+        };
+        PreviewSettings = {
+          Plugins = "appimagethumbnail,audiothumbnail,comicbookthumbnail,cursorthumbnail,djvuthumbnail,ebookthumbnail,exrthumbnail,imagethumbnail,jpegthumbnail,kraorathumbnail,ksvgthumbnail,networkstatusthumbnail,odfpreview,pdfthumbnail,plaintextpreview,svgthumbnail,tiffpreview,videothumbnail";
+        };
+        LocationBar = {
+          PlacesPanel = true;
+          Editable = true;
+          ShowFullPath = true;
+        };
+      };
     };
     panels = [
       {
