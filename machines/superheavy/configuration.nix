@@ -27,18 +27,10 @@
 
   # Server packages
   environment.systemPackages = with pkgs; [
-    docker
-    docker-compose
     nginx
     postgresql
     redis
   ];
-
-  # Enable Docker
-  virtualisation.docker = {
-    enable = true;
-    autoPrune.enable = true;
-  };
 
   # Nginx
   services.nginx = {

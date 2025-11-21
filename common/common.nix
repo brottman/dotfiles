@@ -39,6 +39,8 @@
     tmux
     openssh
     shellcheck
+    docker
+    docker-compose
   ];
 
   # User configuration
@@ -52,6 +54,12 @@
 
   # Sudo configuration
   security.sudo.enable = true;
+
+  # Docker configuration
+  virtualisation.docker = {
+    enable = true;
+    autoPrune.enable = true;
+  };
 
   # SSH configuration
   services.openssh = {

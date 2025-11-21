@@ -111,7 +111,8 @@
   # Power button action
   services.logind.settings = {
     Login = {
-      HandlePowerKey = "poweroff";
+      HandlePowerKey = "reboot";
+      HandlePowerKeyLongPress = "poweroff";
     };
   };
 
