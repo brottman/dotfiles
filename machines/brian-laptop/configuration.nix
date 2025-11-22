@@ -39,7 +39,7 @@
   boot.plymouth.enable = false;
 
   # Networking
-  networking.hostName = "laptop";
+  networking.hostName = "brian-laptop";
   networking.networkmanager.enable = true;
 
   # Graphics (Intel integrated + NVIDIA)
