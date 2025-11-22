@@ -15,8 +15,19 @@
 
   # ZFS support
   boot.supportedFilesystems = [ "zfs" ];
+  boot.zfs.extraPools = [ "datapool" ];
+  boot.kernelParams = [ "zfs.zfs_arc_max=12884901888" ];
   services.zfs.autoScrub.enable = true;
   services.zfs.trim.enable = true;
+  networking.hostId = "033c4bf0";
+  services.zfs.autoSnapshot = {
+    enable = true;
+    frequent = 24;
+    hourly = 48;
+    daily = 60;
+    weekly = 16;
+    monthly = 60; # 5 years
+  };
 
   # Networking
   networking.hostName = "backup";
@@ -65,7 +76,7 @@
   # Firewall
   networking.firewall = {
     enable = true;
-    allowedTCPPorts = [ 2222 80 443 ]; # SSH on non-standard port, HTTP, HTTPS
+    allowedTCPPorts = [ 22 80 443 ]; # SSH, HTTP, HTTPS
     allowedUDPPorts = [ ];
     # Allow Docker to manage its own ports
     extraCommands = ''iptables -A INPUT -i docker0 -j ACCEPT'';
