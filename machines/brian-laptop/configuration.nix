@@ -205,6 +205,29 @@
     wine
   ];
 
+  # Environment variables
+  environment.variables = {
+    # Add environment variables here
+  };
+
+  # Environment aliases
+  environment.shellAliases = {
+    update = "sudo sh ~/dotfiles/manage-nixos.sh switch";
+    gc = "sudo sh ~/dotfiles/manage-nixos.sh switch";
+    ff = "fastfetch";
+    lock = "sudo umount /data/archive/plain";
+    unlock = "sudo mount /dev/disk/by-uuid/04966b6f-b27c-4b47-a589-c3243e9a03bf /data/archive/plain";
+    clean = "srm -rfv /home/brian/.cache/thumbnails/;
+            srm -rfv /home/brian/.config/gthumb/history.xbel;
+            srm -rfv /home/brian/.config/gwenviewrc;
+            srm -rfv /home/brian/.config/vlc/vlc-qt-interface.conf;
+            srm -rfv '/home/brian/.tor project/';
+            srm -rfv '/home/brian/.cache/tor project/';
+            srm -rfv '/home/brian/.tor project/';";
+    reboot = "sudo systemctl reboot";
+    shutdown = "sudo systemctl poweroff";
+  };
+
   # System state version (override common default)
   system.stateVersion = "25.05";
 }
