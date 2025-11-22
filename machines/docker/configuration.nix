@@ -71,7 +71,7 @@
                                           9000 # portainer
                                           39999 # dozzle
                                           ];
-    allowedUDPPorts = [ 80 81 443 8000 9000 ];
+    allowedUDPPorts = [ ];
     # Allow Docker to manage its own ports
     extraCommands = ''iptables -A INPUT -i docker0 -j ACCEPT'';
     extraStopCommands = ''iptables -D INPUT -i docker0 -j ACCEPT'';
