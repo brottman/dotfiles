@@ -65,7 +65,6 @@
     allowedTCPPorts = [ 
                                           22 # ssh
                                           80 # npm
-                                          #81 # npm
                                           443 # npm
                                           8000 # django
                                           9000 # portainer
