@@ -62,22 +62,6 @@
   # Fail2ban
   services.fail2ban.enable = true;
 
-  # SSH configuration for superheavy server
-  services.openssh = {
-    enable = true;
-    port = 22;
-    settings = {
-      PermitRootLogin = "no";
-      PasswordAuthentication = false;
-      PubkeyAuthentication = true;
-      X11Forwarding = false;
-      AllowUsers = [ "user" ];
-      ClientAliveInterval = 300;
-      ClientAliveCountMax = 2;
-      MaxAuthTries = 3;
-    };
-  };
-
   # Firewall
   networking.firewall = {
     enable = true;
