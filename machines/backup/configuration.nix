@@ -61,7 +61,7 @@
 
   # Fail2ban
   services.fail2ban.enable = true;
-#
+
   # Firewall
   networking.firewall = {
     enable = true;
