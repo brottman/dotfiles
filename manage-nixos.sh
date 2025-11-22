@@ -354,12 +354,7 @@ interactive_mode() {
                 else
                     cmd_build "$machine" && cmd_switch "$machine"
                 fi
-                read -p "Would you like to reboot now? (y/n): " reboot_choice
-                if [[ "$reboot_choice" == "y" || "$reboot_choice" == "Y" ]]; then
-                    sudo reboot
-                else
-                    exit 0
-                fi
+                exit 0
                 ;;
             2)
                 read -p "Enter machine name (or press Enter for current): " machine
