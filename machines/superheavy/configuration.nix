@@ -69,9 +69,25 @@
 
   # Firewall
   networking.firewall = {
-    enable = true;
-    allowedTCPPorts = [ 2 80 443 ]; # SSH, HTTP, HTTPS
-    allowedUDPPorts = [ ];
+    enable = false;
+    allowedTCPPorts = [ 
+                                          22 # ssh
+                                          80 # npm
+                                          443 # npm
+                                          445 # samba
+                                          3389 # rdp
+                                          7878 # radarr
+                                          8000 # skylight
+                                          8083 # books
+                                          8096 # jellyfin
+                                          8989 # sonarr
+                                          9000 # portainer
+                                          9696 # prowlarr
+                                          22300 # joplin
+                                          32480 # sabnzbd
+                                          32490 # qbittorrent
+                                          39999 # dozzle
+                                          ];
     # Allow Docker to manage its own ports
     extraCommands = ''iptables -A INPUT -i docker0 -j ACCEPT'';
     extraStopCommands = ''iptables -D INPUT -i docker0 -j ACCEPT'';
