@@ -62,7 +62,7 @@ useSshConfig=false
 username=administrator
 
 [SSH Config][Superheavy]
-hostname=superheavy.taild7d6ce.ts.net
+hostname=superheavy
 identifier=Superheavy
 importedFromSshConfig=false
 port=22
