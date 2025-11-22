@@ -74,7 +74,7 @@
   };
 
   # Tailscale configuration
-  #services.tailscale.enable = true;
+  services.tailscale.enable = true;
 
   # System version (auto-managed by flakes)
   system.stateVersion = "25.05";
