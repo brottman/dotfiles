@@ -7,12 +7,6 @@
     ../../common/machine-secrets.nix
   ];
 
-  # Bootloader
-  boot.loader.grub = {
-    enable = true;
-    device = "/dev/sda";
-  };
-
   # ZFS support
   boot.supportedFilesystems = [ "zfs" ];
   boot.zfs.extraPools = [ "datapool" ];

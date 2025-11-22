@@ -7,12 +7,6 @@
     ../../common/machine-secrets.nix
   ];
 
-  # Bootloader
-  boot.loader.grub = {
-    enable = true;
-    device = "/dev/sda";
-  };
-
   # Networking
   networking.hostName = "docker";
   networking.networkmanager.enable = true;
