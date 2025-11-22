@@ -67,10 +67,11 @@
                                           80 # npm
                                           81 # npm
                                           443 # npm
+                                          8000 # django
                                           9000 # portainer
                                           39999 # dozzle
                                           ];
-    allowedUDPPorts = [ 80 81 443 9000 ];
+    allowedUDPPorts = [ 80 81 443 8000 9000 ];
     # Allow Docker to manage its own ports
     extraCommands = ''iptables -A INPUT -i docker0 -j ACCEPT'';
     extraStopCommands = ''iptables -D INPUT -i docker0 -j ACCEPT'';
