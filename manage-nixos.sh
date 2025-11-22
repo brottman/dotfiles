@@ -30,6 +30,7 @@ Commands:
   switch [MACHINE]      Switch to configuration for specified machine
   build [MACHINE]       Build configuration for specified machine
   dry-run [MACHINE]     Perform a dry run of switching configuration
+  boot [MACHINE]        Apply configuration on next boot instead of immediately
   rebuild-all           Build all machine configurations
   update                Update all flake inputs
   update-nixpkgs        Update nixpkgs only
@@ -43,6 +44,7 @@ Options:
 
 Examples:
   $0 switch brian-laptop
+  $0 boot brian-laptop
   $0 build superheavy --verbose
   $0 rebuild-all --show-trace
   $0 update
@@ -96,6 +98,45 @@ cmd_switch() {
     cd "$FLAKE_PATH"
     # shellcheck disable=SC2086
     sudo nixos-rebuild switch --flake ".#$machine" $verbose_flags
+}
+
+cmd_boot() {
+    local machine="${1:-}"
+    local verbose_flags=""
+    
+    # Parse flags
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -v|--verbose)
+                verbose_flags="--verbose"
+                shift
+                ;;
+            --show-trace)
+                verbose_flags="$verbose_flags --show-trace"
+                shift
+                ;;
+            *)
+                machine="$1"
+                shift
+                ;;
+        esac
+    done
+    
+    if [[ -z "$machine" ]]; then
+        machine=$(get_current_machine)
+        if [[ -z "$machine" ]]; then
+            echo "Error: Machine name required and could not detect from hostname"
+            print_usage
+            exit 1
+        fi
+        echo "Detected machine from hostname: $machine"
+    fi
+    
+    check_machine "$machine"
+    echo "Building $machine configuration for next boot..."
+    cd "$FLAKE_PATH"
+    # shellcheck disable=SC2086
+    sudo nixos-rebuild boot --flake ".#$machine" $verbose_flags
 }
 
 cmd_build() {
@@ -283,10 +324,88 @@ cmd_gc() {
     echo "Note: Run 'nix-collect-garbage --delete-older-than 7d' to also delete generations older than 7 days"
 }
 
+interactive_mode() {
+    while true; do
+        echo ""
+        echo "=========================================="
+        echo "NixOS Configuration Manager"
+        echo "=========================================="
+        echo "1. Switch to configuration"
+        echo "2. Apply configuration on next boot"
+        echo "3. Build configuration"
+        echo "4. Dry run"
+        echo "5. Rebuild all machines"
+        echo "6. Update all flake inputs"
+        echo "7. Update nixpkgs only"
+        echo "8. List available machines"
+        echo "9. Show machine status"
+        echo "10. Garbage collection"
+        echo "0. Exit"
+        echo "=========================================="
+        read -p "Select an option: " choice
+        echo ""
+        
+        case "$choice" in
+            1)
+                read -p "Enter machine name (or press Enter for current): " machine
+                cmd_switch "$machine"
+                ;;
+            2)
+                read -p "Enter machine name (or press Enter for current): " machine
+                cmd_boot "$machine"
+                ;;
+            3)
+                read -p "Enter machine name (or press Enter for current): " machine
+                read -p "Verbose output? (y/n): " verbose_choice
+                if [[ "$verbose_choice" == "y" || "$verbose_choice" == "Y" ]]; then
+                    cmd_build "$machine" --verbose
+                else
+                    cmd_build "$machine"
+                fi
+                ;;
+            4)
+                read -p "Enter machine name (or press Enter for current): " machine
+                cmd_dry_run "$machine"
+                ;;
+            5)
+                read -p "Verbose output? (y/n): " verbose_choice
+                if [[ "$verbose_choice" == "y" || "$verbose_choice" == "Y" ]]; then
+                    cmd_rebuild_all --verbose
+                else
+                    cmd_rebuild_all
+                fi
+                ;;
+            6)
+                cmd_update
+                ;;
+            7)
+                cmd_update_nixpkgs
+                ;;
+            8)
+                cmd_list_machines
+                ;;
+            9)
+                read -p "Enter machine name (or press Enter for current): " machine
+                cmd_status "$machine"
+                ;;
+            10)
+                cmd_gc
+                ;;
+            0)
+                echo "Exiting..."
+                exit 0
+                ;;
+            *)
+                echo "Invalid option. Please try again."
+                ;;
+        esac
+    done
+}
+
 main() {
+    # If no arguments, enter interactive mode
     if [[ $# -eq 0 ]]; then
-        print_usage
-        exit 0
+        interactive_mode
     fi
     
     local cmd="$1"
@@ -295,6 +414,9 @@ main() {
     case "$cmd" in
         switch)
             cmd_switch "$@"
+            ;;
+        boot)
+            cmd_boot "$@"
             ;;
         build)
             cmd_build "$@"
