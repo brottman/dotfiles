@@ -1,6 +1,6 @@
 # Laptop machine configuration
 { config, pkgs, ... }:
-# www
+
 {
   imports = [
     ../../common/common.nix
