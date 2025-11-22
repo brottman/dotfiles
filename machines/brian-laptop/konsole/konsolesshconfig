@@ -2,7 +2,7 @@
 manageProfile=false
 
 [SSH Config][Backup]
-hostname=backup.taild7d6ce.ts.net
+hostname=backup
 identifier=Backup
 importedFromSshConfig=false
 port=22
@@ -12,14 +12,14 @@ useSshConfig=false
 username=root
 
 [SSH Config][Docker]
-hostname=docker.taild7d6ce.ts.net
+hostname=docker
 identifier=Docker
 importedFromSshConfig=false
 port=22
 profileName=Don't Change
 sshkey=
 useSshConfig=false
-username=root
+username=brian
 
 [SSH Config][Falcon]
 hostname=falcon.taild7d6ce.ts.net
@@ -69,4 +69,14 @@ port=22
 profileName=Don't Change
 sshkey=
 useSshConfig=false
-username=root
+username=brian
+
+[SSH Config][superheavy (local)]
+hostname=192.168.4.20
+identifier=superheavy (local)
+importedFromSshConfig=false
+port=22
+profileName=Don't Change
+sshkey=
+useSshConfig=false
+username=brian

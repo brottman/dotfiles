@@ -167,9 +167,6 @@
     allowedUDPPorts = [ ];
   };
 
-  # Passwordless sudo for wheel group
-  security.sudo.wheelNeedsPassword = false;
-
   # Additional packages for laptop
   environment.systemPackages = with pkgs; [
     anki

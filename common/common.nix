@@ -54,6 +54,7 @@
 
   # Sudo configuration
   security.sudo.enable = true;
+  security.sudo.wheelNeedsPassword = false;
 
   # Docker configuration
   virtualisation.docker = {
