@@ -70,7 +70,7 @@
   # Firewall
   networking.firewall = {
     enable = true;
-    allowedTCPPorts = [ 22 80 443 ]; # SSH, HTTP, HTTPS
+    allowedTCPPorts = [ 22 ]; # SSH
     allowedUDPPorts = [ ];
     # Allow Docker to manage its own ports
     extraCommands = ''iptables -A INPUT -i docker0 -j ACCEPT'';
