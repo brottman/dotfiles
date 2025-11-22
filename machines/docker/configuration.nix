@@ -61,7 +61,7 @@
 
   # Firewall
   networking.firewall = {
-    enable = false;
+    enable = true;
     allowedTCPPorts = [ 
                                           22 # ssh
                                           80 # npm
