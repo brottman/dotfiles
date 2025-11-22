@@ -33,5 +33,5 @@
 
   # Hardware
   nixpkgs.hostPlatform = lib.mkDefault "x86_64-linux";
-  boot.initrd.availableKernelModules = [ "sd_mod" "sr_mod" ];
+  virtualisation.hypervGuest.enable = true;
 }
