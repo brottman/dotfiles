@@ -3,7 +3,7 @@
 
 set -e
 
-MACHINES=("brian-laptop" "superheavy" "docker")
+MACHINES=("brian-laptop" "superheavy" "docker" "backup")
 FLAKE_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 get_current_machine() {
