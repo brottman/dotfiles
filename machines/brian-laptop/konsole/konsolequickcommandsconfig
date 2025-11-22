@@ -9,7 +9,7 @@ name=conda
 tooltip=
 
 [1 os][copy konsole]
-command=cp ~/.config/konsolequickcommandsconfig ~/dotfiles/machines/brian-laptop/konsole/\ncp ~/.config/konsolesshconfig ~/dotfiles/machines/brian-laptop/konsole/
+command=cp ~/.config/konsolequickcommandsconfig /data/Seafile/Brian/dotfiles/machines/brian-laptop/konsole/\ncp ~/.config/konsolesshconfig /data/Seafile/Brian/dotfiles/machines/brian-laptop/konsole/
 name=copy konsole
 tooltip=
 
@@ -24,7 +24,7 @@ name=nixos gc
 tooltip=
 
 [1 os][nixos switch]
-command=# shellcheck disable=SC2164\ncd ~/dotfiles;\ngit pull;\n./manage-nixos.sh switch;
+command=# shellcheck disable=SC2164\ncd ~/dotfiles;\ngit pull;\n./manage-nixos.sh;
 name=nixos switch
 tooltip=
 
@@ -69,17 +69,17 @@ name=cups-samba delete
 tooltip=
 
 [2 docker][down]
-command=cd /datapool/docker && docker compose down
+command=# shellcheck disable=SC2164\n# shellcheck disable=SC2086\ncd ~/docker/$HOSTNAME/;\ndocker compose down;
 name=down
 tooltip=
 
 [2 docker][pull]
-command=cd /datapool/docker && docker compose pull
+command=# shellcheck disable=SC2164\n# shellcheck disable=SC2086\ncd ~/docker/;\ngit pull;\ncd ~/docker/$HOSTNAME/;\ndocker compose pull;
 name=pull
 tooltip=
 
 [2 docker][up]
-command=cd /datapool/docker && docker compose up -d --remove-orphans
+command=# shellcheck disable=SC2164\n# shellcheck disable=SC2086\ncd ~/docker/;\ngit pull;\ncd ~/docker/$HOSTNAME/;\ndocker compose up -d --remove-orphans;
 name=up
 tooltip=
 
