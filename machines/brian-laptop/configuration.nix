@@ -190,6 +190,7 @@
     prismlauncher
     python3
     rclone
+    remmina
     restic
     rustdesk
     shellcheck
