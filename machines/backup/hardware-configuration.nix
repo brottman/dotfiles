@@ -5,8 +5,9 @@
   imports = [ ];
 
   # Boot configuration
+  boot.initrd.availableKernelModules = [ ];
   boot.initrd.kernelModules = [ ];
-  boot.kernelModules = [ ];
+  boot.kernelModules = [ ]; # Adjust based on CPU
   boot.extraModulePackages = [ ];
   
   # Bootloader settings for server (systemd-boot)
@@ -15,18 +16,17 @@
 
   # File systems - REPLACE UUIDs with actual device UUIDs from `nixos-generate-config`
   fileSystems."/" = {
-    device = "/dev/disk/by-uuid/REPLACE-WITH-UUID";
+    device = "/dev/disk/by-uuid/REPLACE";
     fsType = "ext4";
   };
 
   fileSystems."/boot" = {
-    device = "/dev/disk/by-uuid/REPLACE-WITH-BOOT-UUID";
+    device = "/dev/disk/by-uuid/REPLACE";
     fsType = "vfat";
+    options = [ "fmask=0022" "dmask=0022" ];
   };
 
-  swapDevices = [
-    { device = "/dev/disk/by-uuid/REPLACE-WITH-SWAP-UUID"; }
-  ];
+  swapDevices = [ ];
 
   # Networking
   networking.useDHCP = lib.mkDefault true;
