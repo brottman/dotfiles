@@ -7,6 +7,33 @@
     ../../common/machine-secrets.nix
   ];
 
+  machine-secrets = {
+    sshKeys = {
+      enable = true;
+      
+      # Your laptop's host key (so other machines can SSH to it)
+      hostPublicKey = "AAAAC3NzaC1lZDI1NTE5AAAAIHJM+DQTYuxIUkny90TbnL4xEfIN7jWzdhsFYkCDhePo backup";
+      
+      # Authorized keys for the brian user on this machine
+      authorizedKeys = {
+        brian = [
+          "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIJO8uo1P2tkol5uYYPtn/+SPp3xMUTPyuURcgsyg0jk brian@laptop"
+          "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHJLMqTqjGGiFC8jjGi4hhXfk3mPz7ebJ8VJk5xaDmQb brian@superheavy"
+          "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHJM+DQTYuxIUkny90TbnL4xEfIN7jWzdhsFYkCDhePo brian@backup"
+          "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILBVZabueeT2ESBtgz3blxhE39JQv736W0uDoZmRxP0D brian@docker"
+        ];
+      };
+    };
+    
+    # Store the host public keys of machines you want to SSH to
+    trustedMachines = {
+      "backup" = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIJO8uo1P2tkol5uYYPtn/+SPp3xMUTPyuURcgsyg0jk brian@laptop";
+      "backup" = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHJLMqTqjGGiFC8jjGi4hhXfk3mPz7ebJ8VJk5xaDmQb brian@superheavy";
+      "backup" = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHJM+DQTYuxIUkny90TbnL4xEfIN7jWzdhsFYkCDhePo brian@backup";
+      "backup" = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILBVZabueeT2ESBtgz3blxhE39JQv736W0uDoZmRxP0D brian@docker";
+    };
+  };
+
   # ZFS support
   boot.supportedFilesystems = [ "zfs" ];
   boot.zfs.extraPools = [ "backpool" ];

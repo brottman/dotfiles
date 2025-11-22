@@ -9,7 +9,7 @@ port=22
 profileName=Don't Change
 sshkey=
 useSshConfig=false
-username=root
+username=brian
 
 [SSH Config][Docker]
 hostname=docker

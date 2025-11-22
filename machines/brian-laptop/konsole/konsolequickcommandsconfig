@@ -9,18 +9,13 @@ name=conda
 tooltip=
 
 [1 os][copy konsole]
-command=cp ~/.config/konsolequickcommandsconfig /data/Seafile/Brian/dotfiles/machines/brian-laptop/konsole/\ncp ~/.config/konsolesshconfig /data/Seafile/Brian/dotfiles/machines/brian-laptop/konsole/
+command=cp ~/.config/konsolequickcommandsconfig ~/dotfiles/machines/brian-laptop/konsole/\ncp ~/.config/konsolesshconfig ~/dotfiles/machines/brian-laptop/konsole/
 name=copy konsole
 tooltip=
 
 [1 os][git commit]
 command=# shellcheck disable=SC2164\ncp ~/.config/konsolequickcommandsconfig /data/Seafile/Brian/dotfiles/machines/brian-laptop/konsole/;\ncp ~/.config/konsolesshconfig /data/Seafile/Brian/dotfiles/machines/brian-laptop/konsole/;\ncd /data/Seafile/Brian/dotfiles;\ngit add .;\ngit commit -m "update";\ngit push;
 name=git commit
-tooltip=
-
-[1 os][nixos gc]
-command=# shellcheck disable=SC2164\ncd ~/dotfiles;\ngit pull;\n./manage-nixos.sh gc;
-name=nixos gc
 tooltip=
 
 [1 os][nixos switch]

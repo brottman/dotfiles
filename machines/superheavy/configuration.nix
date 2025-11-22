@@ -19,6 +19,7 @@
         brian = [
           "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIJO8uo1P2tkol5uYYPtn/+SPp3xMUTPyuURcgsyg0jk brian@laptop"
           "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHJLMqTqjGGiFC8jjGi4hhXfk3mPz7ebJ8VJk5xaDmQb brian@superheavy"
+          "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHJM+DQTYuxIUkny90TbnL4xEfIN7jWzdhsFYkCDhePo brian@backup"
           "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILBVZabueeT2ESBtgz3blxhE39JQv736W0uDoZmRxP0D brian@docker"
         ];
       };
@@ -26,8 +27,10 @@
     
     # Store the host public keys of machines you want to SSH to
     trustedMachines = {
-      "superheavy" = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIJO8uo1P2tkol5uYYPtn/+SPp3xMUTPyuURcgsyg0jk brian@laptop";
-      "docker" = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILBVZabueeT2ESBtgz3blxhE39JQv736W0uDoZmRxP0D docker";
+      "backup" = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIJO8uo1P2tkol5uYYPtn/+SPp3xMUTPyuURcgsyg0jk brian@laptop";
+      "backup" = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHJLMqTqjGGiFC8jjGi4hhXfk3mPz7ebJ8VJk5xaDmQb brian@superheavy";
+      "backup" = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHJM+DQTYuxIUkny90TbnL4xEfIN7jWzdhsFYkCDhePo brian@backup";
+      "backup" = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILBVZabueeT2ESBtgz3blxhE39JQv736W0uDoZmRxP0D brian@docker";
     };
   };
 
