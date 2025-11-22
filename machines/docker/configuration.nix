@@ -65,6 +65,7 @@
     allowedTCPPorts = [ 
                                           22 # ssh
                                           80 # npm
+                                          81 # npm
                                           443 # npm
                                           9000 # portainer
                                           39999 # dozzle
