@@ -15,8 +15,19 @@
 
   # ZFS support
   boot.supportedFilesystems = [ "zfs" ];
+  boot.zfs.extraPools = [ "datapool" ];
+  boot.kernelParams = [ "zfs.zfs_arc_max=12884901888" ];
   services.zfs.autoScrub.enable = true;
   services.zfs.trim.enable = true;
+  networking.hostId = "3744ab0e";
+  services.zfs.autoSnapshot = {
+    enable = true;
+    frequent = 24;
+    hourly = 48;
+    daily = 60;
+    weekly = 16;
+    monthly = 60; # 5 years
+  };
 
   # Networking
   networking.hostName = "superheavy";
