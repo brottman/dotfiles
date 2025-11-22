@@ -65,7 +65,7 @@
   # SSH configuration for superheavy server
   services.openssh = {
     enable = true;
-    port = 2222;
+    port = 22;
     settings = {
       PermitRootLogin = "no";
       PasswordAuthentication = false;
@@ -81,7 +81,7 @@
   # Firewall
   networking.firewall = {
     enable = true;
-    allowedTCPPorts = [ 2222 80 443 ]; # SSH on non-standard port, HTTP, HTTPS
+    allowedTCPPorts = [ 2 80 443 ]; # SSH, HTTP, HTTPS
     allowedUDPPorts = [ ];
     # Allow Docker to manage its own ports
     extraCommands = ''iptables -A INPUT -i docker0 -j ACCEPT'';

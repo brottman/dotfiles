@@ -7,16 +7,18 @@
 
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
+    nixpkgs-stable.url = "github:nixos/nixpkgs/nixos-25.05";
     home-manager.url = "github:nix-community/home-manager";
     home-manager.inputs.nixpkgs.follows = "nixpkgs";
     plasma-manager.url = "github:pjones/plasma-manager";
     plasma-manager.inputs.nixpkgs.follows = "nixpkgs";
   };
 
-  outputs = { self, nixpkgs, home-manager, plasma-manager }:
+  outputs = { self, nixpkgs, nixpkgs-stable, home-manager, plasma-manager }:
     let
       system = "x86_64-linux";
       pkgs = nixpkgs.legacyPackages.${system};
+      pkgs-stable = nixpkgs-stable.legacyPackages.${system};
     in
     {
       nixosConfigurations = {
@@ -39,7 +41,7 @@
         };
 
         # Server machine configuration
-        superheavy = nixpkgs.lib.nixosSystem {
+        superheavy = nixpkgs-stable.lib.nixosSystem {
           inherit system;
           modules = [
             ./machines/superheavy/configuration.nix
@@ -48,7 +50,7 @@
         };
 
         # Server machine configuration
-        docker = nixpkgs.lib.nixosSystem {
+        docker = nixpkgs-stable.lib.nixosSystem {
           inherit system;
           modules = [
             ./machines/docker/configuration.nix
@@ -57,7 +59,7 @@
         };
 
         # Server machine configuration
-        backup = nixpkgs.lib.nixosSystem {
+        backup = nixpkgs-stable.lib.nixosSystem {
           inherit system;
           modules = [
             ./machines/backup/configuration.nix

@@ -49,7 +49,7 @@
     home = "/home/brian";
     createHome = true;
     shell = pkgs.bash;
-    extraGroups = [ "wheel" "networkmanager" "docker" "libvirtd" "kvm" ];
+    extraGroups = [ "wheel" "networkmanager" "docker" "libvirtd" "kvm" "tailscale" ];
   };
 
   # Sudo configuration
@@ -72,6 +72,9 @@
       AllowUsers = [ "brian" ];
     };
   };
+
+  # Tailscale configuration
+  services.tailscale.enable = true;
 
   # System version (auto-managed by flakes)
   system.stateVersion = "25.05";

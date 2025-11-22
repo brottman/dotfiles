@@ -145,6 +145,13 @@
     };
   };
 
+  # Steam
+  programs.steam = {
+    enable = true;
+    remotePlay.openFirewall = true;
+    dedicatedServer.openFirewall = true;
+  };
+
   # Virtualization
   virtualisation.libvirtd = {
     enable = true;
@@ -181,6 +188,7 @@
     lutris
     pinta
     prismlauncher
+    python3
     rclone
     restic
     shellcheck
@@ -189,7 +197,6 @@
     thunderbird
     qbittorrent
     scrcpy
-    steam
     gzdoom
     ventoy
     vlc
