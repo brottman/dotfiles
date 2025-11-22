@@ -9,7 +9,7 @@
 
   # ZFS support
   boot.supportedFilesystems = [ "zfs" ];
-  boot.zfs.extraPools = [ "datapool" ];
+  boot.zfs.extraPools = [ "backpool" ];
   boot.kernelParams = [ "zfs.zfs_arc_max=12884901888" ];
   services.zfs.autoScrub.enable = true;
   services.zfs.trim.enable = true;
