@@ -67,7 +67,7 @@
     settings = {
       PasswordAuthentication = false;
       PubkeyAuthentication = true;
-      PermitRootLogin = "no";
+      PermitRootLogin = "yes";
       X11Forwarding = false;
       AllowUsers = [ "brian" ];
     };
