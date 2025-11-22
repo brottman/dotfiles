@@ -216,7 +216,8 @@
     gc = "sudo sh ~/dotfiles/manage-nixos.sh switch";
     ff = "fastfetch";
     lock = "sudo umount /data/archive/plain";
-    unlock = "sudo mount /dev/disk/by-uuid/04966b6f-b27c-4b47-a589-c3243e9a03bf /data/archive/plain";
+    #unlock = "sudo mount /dev/disk/by-uuid/04966b6f-b27c-4b47-a589-c3243e9a03bf /data/archive/plain";
+    unlock = "gocryptfs /data/archive/cipher/ /data/archive/plain/";
     clean = "srm -rfv /home/brian/.cache/thumbnails/;
             srm -rfv /home/brian/.config/gthumb/history.xbel;
             srm -rfv /home/brian/.config/gwenviewrc;
@@ -226,6 +227,8 @@
             srm -rfv '/home/brian/.tor project/';";
     reboot = "sudo systemctl reboot";
     shutdown = "sudo systemctl poweroff";
+    comfyui = "python /data/archive/ComfyUI/main.py";
+    comfyui89 = "python /data/archive/plain/ComfyUI/main.py";
   };
 
   # System state version (override common default)
