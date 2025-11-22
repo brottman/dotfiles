@@ -96,7 +96,7 @@ in
       ) cfg.sshKeys.authorizedKeys;
 
       # Add global authorized keys to root if root is in authorizedKeys
-      users.users.root = lib.mkIf (cfg.sshKeys.authorizedKeys ? "root") {
+      users.users.root = lib.mkIf (lib.hasAttr "root" cfg.sshKeys.authorizedKeys) {
         openssh.authorizedKeys.keys = 
           cfg.sshKeys.authorizedKeys.root ++ cfg.sshKeys.globalAuthorizedKeys;
       };
