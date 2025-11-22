@@ -330,9 +330,9 @@ interactive_mode() {
         echo "=========================================="
         echo "NixOS Configuration Manager"
         echo "=========================================="
-        echo "1. Switch to configuration"
-        echo "2. Apply configuration on next boot"
-        echo "3. Build configuration"
+        echo "1. Build and apply configuration immediately"
+        echo "2. Build and apply configuration on next boot"
+        echo "3. Build configuration only"
         echo "4. Dry run"
         echo "5. Rebuild all machines"
         echo "6. Update all flake inputs"
@@ -348,11 +348,21 @@ interactive_mode() {
         case "$choice" in
             1)
                 read -p "Enter machine name (or press Enter for current): " machine
-                cmd_switch "$machine"
+                read -p "Verbose output? (y/n): " verbose_choice
+                if [[ "$verbose_choice" == "y" || "$verbose_choice" == "Y" ]]; then
+                    cmd_build "$machine" --verbose && cmd_switch "$machine" --verbose
+                else
+                    cmd_build "$machine" && cmd_switch "$machine"
+                fi
                 ;;
             2)
                 read -p "Enter machine name (or press Enter for current): " machine
-                cmd_boot "$machine"
+                read -p "Verbose output? (y/n): " verbose_choice
+                if [[ "$verbose_choice" == "y" || "$verbose_choice" == "Y" ]]; then
+                    cmd_build "$machine" --verbose && cmd_boot "$machine" --verbose
+                else
+                    cmd_build "$machine" && cmd_boot "$machine"
+                fi
                 ;;
             3)
                 read -p "Enter machine name (or press Enter for current): " machine

@@ -191,6 +191,7 @@
     python3
     rclone
     restic
+    rustdesk
     shellcheck
     seafile-client
     srm
