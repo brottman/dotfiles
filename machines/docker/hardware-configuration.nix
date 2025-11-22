@@ -1,11 +1,11 @@
 # Docker server hardware configuration
-{ config, lib, pkgs, ... }:
+{ config, lib, pkgs, modulesPath, ... }:
 
 {
   imports = [ ];
 
   # Boot configuration
-  boot.initrd.availableKernelModules = [ ];
+  boot.initrd.availableKernelModules = [ "sd_mod" "sr_mod" ];
   boot.initrd.kernelModules = [ ];
   boot.kernelModules = [ ]; # Adjust based on CPU
   boot.extraModulePackages = [ ];
@@ -33,4 +33,5 @@
 
   # Hardware
   nixpkgs.hostPlatform = lib.mkDefault "x86_64-linux";
+  virtualisation.hypervGuest.enable = true;
 }
