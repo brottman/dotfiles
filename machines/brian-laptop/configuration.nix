@@ -175,7 +175,7 @@
     bluez-tools
     code-cursor
     dtrx # file extractor
-    #exiftool
+    exiftool
     ffmpeg
     filezilla
     fsearch
