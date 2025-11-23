@@ -35,6 +35,8 @@
     conda
     doublecmd
     libatasmart
+    lzop
+    mbuffer
     sanoid
     
   ];
