@@ -9,7 +9,7 @@ name=conda
 tooltip=
 
 [1 os][copy konsole]
-command=cp ~/.config/konsolequickcommandsconfig ~/dotfiles/machines/brian-laptop/konsole/\ncp ~/.config/konsolesshconfig ~/dotfiles/machines/brian-laptop/konsole/
+command=# shellcheck disable=SC2164\ncp ~/.config/konsolequickcommandsconfig ~/dotfiles/machines/brian-laptop/konsole/;\ncp ~/.config/konsolesshconfig ~/dotfiles/machines/brian-laptop/konsole/;
 name=copy konsole
 tooltip=
 
@@ -23,9 +23,9 @@ command=# shellcheck disable=SC2164\ncd /data/Seafile/Brian/Python/Skylight/;\ng
 name=git commit skylight
 tooltip=
 
-[1 os][nixos switch]
+[1 os][manage nixos]
 command=# shellcheck disable=SC2164\ncd ~/dotfiles;\ngit pull;\n./manage-nixos.sh;
-name=nixos switch
+name=manage nixos
 tooltip=
 
 [1 os][rclone bisync]
