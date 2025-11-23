@@ -5,6 +5,7 @@
   # File Sharing - Samba
   services.samba = {
     enable = true;
+    securityType = "user";
     openFirewall = false; # We manage firewall manually
     settings = {
       global = {
