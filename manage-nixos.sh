@@ -34,6 +34,7 @@ Commands:
   rebuild-all           Build all machine configurations
   update                Update all flake inputs
   update-nixpkgs        Update nixpkgs only
+  pull                  Git pull latest changes and rerun the script
   list-machines         List all available machines
   status [MACHINE]      Show status of a machine
   gc                    Garbage collect old generations
@@ -48,6 +49,7 @@ Examples:
   $0 build superheavy --verbose
   $0 rebuild-all --show-trace
   $0 update
+  $0 pull
   $0 list-machines
 
 EOF
@@ -314,6 +316,17 @@ cmd_gc() {
     echo "Note: Run 'nix-collect-garbage --delete-older-than 7d' to also delete generations older than 7 days"
 }
 
+cmd_pull() {
+    echo "Pulling latest changes from git..."
+    cd "$FLAKE_PATH"
+    git pull
+    echo "Git pull completed successfully"
+    
+    # Re-execute the script with the same arguments, excluding 'pull'
+    echo "Re-running script..."
+    exec "$0" "$@"
+}
+
 interactive_mode() {
     while true; do
         echo ""
@@ -327,6 +340,7 @@ interactive_mode() {
         echo "5. Garbage collection"
         echo "6. List generations"
         echo "7. List available machines"
+        echo "8. Git pull and rerun"
         echo "q. Quit"
         echo "r. Reboot"
         echo "=========================================="
@@ -355,6 +369,9 @@ interactive_mode() {
                 ;;
             7)
                 cmd_list_machines
+                ;;
+            8)
+                cmd_pull
                 ;;
             q|Q)
                 echo "Exiting..."
@@ -400,6 +417,9 @@ main() {
             ;;
         update-nixpkgs)
             cmd_update_nixpkgs "$@"
+            ;;
+        pull)
+            cmd_pull "$@"
             ;;
         list-machines)
             cmd_list_machines "$@"
