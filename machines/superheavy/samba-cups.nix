@@ -17,11 +17,21 @@
         "hosts deny" = "0.0.0.0/0";
         "guest account" = "nobody";
       };
-      public = {
-        path = "/";
+      backup = {
+        path = "/datapool/backup";
         browseable = "yes";
         "read only" = "no";
-        "guest ok" = "yes";
+        "guest ok" = "no";
+        "valid users" = "brian";
+        "create mask" = "0644";
+        "directory mask" = "0755";
+      };
+      brian = {
+        path = "/datapool/brian";
+        browseable = "yes";
+        "read only" = "no";
+        "guest ok" = "no";
+        "valid users" = "";
         "create mask" = "0644";
         "directory mask" = "0755";
       };
