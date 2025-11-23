@@ -2,6 +2,12 @@
 { config, pkgs, ... }:
 
 {
+  # Samba user configuration
+  services.samba.extraConfig = ''
+    [global]
+    passdb backend = tdbsam
+  '';
+
   # File Sharing - Samba
   services.samba = {
     enable = true;
