@@ -18,14 +18,14 @@
         "guest account" = "nobody";
       };
       public = {
-        path = "/datapool/data";
+        path = "/";
         browseable = "yes";
         "read only" = "no";
         "guest ok" = "yes";
         "create mask" = "0644";
         "directory mask" = "0755";
       };
-      private = {
+      data = {
         path = "/datapool/docker";
         browseable = "yes";
         "read only" = "no";
@@ -34,6 +34,21 @@
         "create mask" = "0644";
         "directory mask" = "0755";
       };
+      docker = {
+        path = "/datapool/docker";
+        browseable = "yes";
+        "read only" = "no";
+        "guest ok" = "no";
+        "valid users" = "brian";
+        "create mask" = "0644";
+        "directory mask" = "0755";
+      };
+      printer = {
+        path = "/datapool/printer";
+        browseable = "yes";
+        "read only" = "no";
+        "guest ok" = "no";
+        "valid users" = "brian";
     };
   };
 
