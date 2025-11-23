@@ -8,6 +8,7 @@ echo "1. Check if ~/.ssh/authorized_keys exists:"
 if [[ -f ~/.ssh/authorized_keys ]]; then
     echo "   ✓ File exists"
     echo "   Permissions: $(stat -c '%a' ~/.ssh/authorized_keys)"
+    echo "   Owner: $(stat -c '%U:%G' ~/.ssh/authorized_keys)"
     echo "   Content ($(wc -l < ~/.ssh/authorized_keys) lines):"
     cat ~/.ssh/authorized_keys
 else
@@ -34,8 +35,17 @@ sudo sshd -T 2>/dev/null | grep -E "pubkeyauthentication|passwordauthentication|
 echo ""
 
 echo "5. Check brian user home directory:"
-ls -la ~
+ls -lah ~
 echo ""
 
 echo "6. Check .ssh directory permissions:"
-ls -la ~/.ssh/
+if [[ -d ~/.ssh ]]; then
+    ls -lah ~/.ssh/
+else
+    echo "   ~/.ssh directory does not exist!"
+fi
+echo ""
+
+echo "7. Recent SSH logs:"
+sudo journalctl -u sshd -n 20 --no-pager || echo "   Could not get logs"
+

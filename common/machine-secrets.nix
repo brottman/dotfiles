@@ -99,7 +99,6 @@ in
       in
       {
         # Set authorized keys for each user
-        # Using foldl' to properly merge multiple user configurations
         users.users = lib.foldl' (acc: item:
           acc // {
             ${item.name} = {
@@ -113,6 +112,9 @@ in
         environment.etc."ssh/ssh_known_hosts".text = lib.concatStringsSep "\n"
           (lib.mapAttrsToList (name: key: "${name} ssh-ed25519 ${key}") cfg.trustedMachines)
           + "\n";
+
+        # Ensure SSH service is properly configured
+        services.openssh.enable = lib.mkDefault true;
       }
     ))
   ];
