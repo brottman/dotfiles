@@ -228,37 +228,29 @@ cmd_status() {
     fi
     
     check_machine "$machine"
-    echo "Status for $machine:"
-    echo "  Hostname: $machine"
-    echo "  Configuration path: $FLAKE_PATH/machines/$machine"
+    echo "Generations for $machine:"
+    echo ""
     
     # Check if system is installed
     if [[ -f "/etc/nixos/configuration.nix" ]]; then
-        echo "  Installed: Yes"
-        
-        # Try to get current generation info
+        # Try to get generations info
         if command -v nixos-rebuild &> /dev/null; then
-            local current_gen
-            current_gen=$(nixos-rebuild list-generations 2>/dev/null | tail -n 1 || echo "")
+            local generations
+            generations=$(nixos-rebuild list-generations 2>/dev/null || echo "")
             
-            if [[ -n "$current_gen" ]]; then
-                echo "  Current Generation: $current_gen"
+            if [[ -n "$generations" ]]; then
+                echo "Available Generations:"
+                echo "$generations" | sed 's/^/  /'
+                echo ""
+                echo "Current Generation: $(echo "$generations" | tail -n 1 | awk '{print $1}' | sed 's/^/  /')"
             else
-                echo "  Current Generation: Unable to retrieve"
+                echo "Unable to retrieve generations"
             fi
         else
-            echo "  Current Generation: nixos-rebuild not available"
-        fi
-        
-        # Check boot environment
-        if [[ -d "/boot/efi" ]] || [[ -d "/boot" ]]; then
-            echo "  Boot: Configured"
-        else
-            echo "  Boot: Not found"
+            echo "nixos-rebuild not available"
         fi
     else
-        echo "  Installed: No"
-        echo "  Note: This machine doesn't appear to be the current system"
+        echo "This machine doesn't appear to be the current system"
     fi
 }
 
@@ -333,13 +325,10 @@ interactive_mode() {
         echo "1. Build and apply configuration immediately"
         echo "2. Build and apply configuration on next boot"
         echo "3. Build configuration only"
-        echo "4. Dry run"
-        echo "5. Rebuild all machines"
-        echo "6. Update all flake inputs"
-        echo "7. Update nixpkgs only"
-        echo "8. List available machines"
-        echo "9. Show machine status"
-        echo "10. Garbage collection"
+        echo "4. Update all flake inputs"
+        echo "5. Garbage collection"
+        echo "6. List generations"
+        echo "7. List available machines"
         echo "0. Exit"
         echo "=========================================="
         read -p "Select an option: " choice
@@ -363,26 +352,16 @@ interactive_mode() {
                 cmd_build
                 ;;
             4)
-                cmd_dry_run
-                ;;
-            5)
-                cmd_rebuild_all
-                ;;
-            6)
                 cmd_update
                 ;;
-            7)
-                cmd_update_nixpkgs
-                ;;
-            8)
-                cmd_list_machines
-                ;;
-            9)
-                read -p "Enter machine name (or press Enter for current): " machine
-                cmd_status "$machine"
-                ;;
-            10)
+            5)
                 cmd_gc
+                ;;
+            6)
+                cmd_status
+                ;;
+            7)
+                cmd_list_machines
                 ;;
             0)
                 echo "Exiting..."
