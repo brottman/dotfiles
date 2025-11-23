@@ -241,8 +241,6 @@ cmd_status() {
             if [[ -n "$generations" ]]; then
                 echo "Available Generations:"
                 echo "$generations" | sed 's/^/  /'
-                echo ""
-                echo "Current Generation: $(echo "$generations" | tail -n 1 | awk '{print $1}' | sed 's/^/  /')"
             else
                 echo "Unable to retrieve generations"
             fi
@@ -329,7 +327,8 @@ interactive_mode() {
         echo "5. Garbage collection"
         echo "6. List generations"
         echo "7. List available machines"
-        echo "0. Exit"
+        echo "q. Quit"
+        echo "r. Reboot"
         echo "=========================================="
         read -p "Select an option: " choice
         echo ""
@@ -337,16 +336,9 @@ interactive_mode() {
         case "$choice" in
             1)
                 cmd_build && cmd_switch
-                exit 0
                 ;;
             2)
                 cmd_build && cmd_boot
-                read -p "Would you like to reboot now? (y/n): " reboot_choice
-                if [[ "$reboot_choice" == "y" || "$reboot_choice" == "Y" ]]; then
-                    sudo reboot
-                else
-                    exit 0
-                fi
                 ;;
             3)
                 cmd_build
@@ -363,9 +355,12 @@ interactive_mode() {
             7)
                 cmd_list_machines
                 ;;
-            0)
+            q|Q)
                 echo "Exiting..."
                 exit 0
+                ;;
+            r|R)
+                sudo reboot
                 ;;
             *)
                 echo "Invalid option. Please try again."
