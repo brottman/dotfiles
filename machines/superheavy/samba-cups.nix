@@ -37,13 +37,13 @@
     };
     # To add Samba users, uncomment and configure the users list below.
     # Each user entry should reference a system user and a password file.
-    # Example using sops-nix for secrets management:
-    users = [
-      {
-        name = "brian";
-        passwordFile = config.sops.secrets.samba_brian_password.path;
-      }
-    ];
+    # Example using sops-nix for secrets management (requires sops-nix setup):
+    # users = [
+    #   {
+    #     name = "brian";
+    #     passwordFile = config.sops.secrets.samba_brian_password.path;
+    #   }
+    # ];
     # Or if using a plain text file (less secure):
     # users = [
     #   {
