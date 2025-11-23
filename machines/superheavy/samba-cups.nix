@@ -68,7 +68,7 @@
   # Print Server - CUPS
   services.printing = {
     enable = true;
-    drivers = with pkgs; [ gutenprint cups-filters brlaser ];
+    drivers = with pkgs; [ gutenprint cups-bjnp cups-filters brlaser ];
     stateless = false;
     allowFrom = [ "all" ];
     listenAddresses = [ "*:631" ];
