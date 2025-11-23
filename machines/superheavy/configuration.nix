@@ -1,5 +1,5 @@
 # Server machine configuration
-{ config, pkgs, ... }:
+{ config, pkgs, lib, ... }:
 
 {
   imports = [
@@ -69,6 +69,9 @@
       };
     };
   };
+
+  # Allow both msmtp and postfix to coexist
+  services.mail.sendmailSetuidWrapper.setgid = lib.mkForce false;
 
   # Local mail service
   services.postfix = {
