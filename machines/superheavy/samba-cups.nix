@@ -12,10 +12,9 @@
         "server string" = "superheavy";
         "netbios name" = "superheavy";
         security = "user";
-        "hosts allow" = "192.168. 10. 127. localhost";
+        "hosts allow" = "192.168.* 10.* 127.* localhost";
         "hosts deny" = "0.0.0.0/0";
         "guest account" = "nobody";
-        "map to guest" = "Bad User";
       };
       public = {
         path = "/datapool/data";
@@ -35,24 +34,6 @@
         "directory mask" = "0755";
       };
     };
-    # To add Samba users, uncomment and configure the users list below.
-    # Each user entry should reference a system user and a password file.
-    # Example using sops-nix for secrets management (requires sops-nix setup):
-    # users = [
-    #   {
-    #     name = "brian";
-    #     passwordFile = config.sops.secrets.samba_brian_password.path;
-    #   }
-    # ];
-    # Or if using a plain text file (less secure):
-    # users = [
-    #   {
-    #     name = "brian";
-    #     passwordFile = "/var/lib/samba/private/samba_brian_password";
-    #   }
-    # ];
-    # Note: The system user (e.g., "brian") must exist in users.users before adding to Samba.
-    #       Set the Samba password with: sudo smbpasswd -a <username>
   };
 
   # Print Server - CUPS

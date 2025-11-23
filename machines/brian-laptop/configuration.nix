@@ -154,9 +154,7 @@
     };
   };
   systemd.services.libvirt-guests = {
-    serviceConfig = {
-      TimeoutStopSec = 10;
-    };
+    enable = false;
   };
   virtualisation.spiceUSBRedirection.enable = true;
   programs.virt-manager.enable = true;

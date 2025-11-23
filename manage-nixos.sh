@@ -330,7 +330,8 @@ interactive_mode() {
         echo "q. Quit"
         echo "r. Reboot"
         echo "=========================================="
-        read -p "Select an option: " choice
+        read -rsn1 -p "Select an option: " choice
+        echo ""
         echo ""
         
         case "$choice" in
