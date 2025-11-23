@@ -19,7 +19,7 @@ name=git commit dotfiles
 tooltip=
 
 [1 os][git commit skylight]
-command=# shellcheck disable=SC2164\ncd /data/Seafile/Brian/Python/Skylight/;\ngit add .;\ngit commit -m "update '[%Y-%m-%d %H:%M:%S]'";\ngit push;
+command=# shellcheck disable=SC2164\ncd /data/Seafile/Brian/Python/Skylight/;\ngit add .;\ngit commit -m "update";\ngit push;
 name=git commit skylight
 tooltip=
 
