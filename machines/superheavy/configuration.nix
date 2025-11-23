@@ -56,7 +56,7 @@
   # Local mail service with Gmail relay
   services.postfix = {
     enable = true;
-    relayHost = "smtp.gmail.com:587";
+    relayHost = "smtp.gmail.com";
     relayPort = 587;
     origin = "superheavy";
     hostname = "superheavy";
