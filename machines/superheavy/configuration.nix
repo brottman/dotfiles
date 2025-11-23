@@ -71,6 +71,8 @@
       smtp_sasl_password_maps = "hash:/etc/postfix/gmail_password";
       smtp_tls_CAfile = "${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt";
       inet_protocols = "ipv4";
+      sender_canonical_maps = "regexp:/etc/postfix/sender_canonical";
+      sender_canonical_classes = "envelope_sender, header_sender";
     };
   };
 
