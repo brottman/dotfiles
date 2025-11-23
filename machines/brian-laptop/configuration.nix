@@ -127,10 +127,26 @@
     settings = {
       General = {
         Enable = "Source,Sink,Media,Socket";
+        Experimental = true;
+      };
+      Policy = {
+        AutoEnable = true;
       };
     };
   };
   services.blueman.enable = true;
+  
+  # Ensure Bluetooth adapter is powered on at boot
+  systemd.services.bluetooth.after = [ "systemd-modules-load.service" ];
+  systemd.services.bluetooth.serviceConfig = {
+    Type = "dbus";
+    Restart = "always";
+    RestartSec = 5;
+  };
+  
+  # Enable early loading of Bluetooth modules
+  boot.kernelModules = [ "kvm-intel" "btusb" ];
+  boot.initrd.kernelModules = [ "btusb" ];
 
   # Trackpad
   services.libinput = {
@@ -152,6 +168,16 @@
   virtualisation.libvirtd = {
     enable = true;
     onBoot = "start";
+    qemu = {
+      runAsRoot = false;
+      swtpm.enable = true;
+    };
+  };
+  virtualisation.libvirtd.guests = {};
+  systemd.services.libvirt-guests = {
+    serviceConfig = {
+      TimeoutStopSec = 10;
+    };
   };
   virtualisation.spiceUSBRedirection.enable = true;
   programs.virt-manager.enable = true;
