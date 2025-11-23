@@ -5,6 +5,7 @@
   imports = [
     ../../common/common.nix
     ./samba-cups.nix
+    ./timers.nix
   ];
 
   # ZFS support
@@ -38,7 +39,8 @@
     lzop
     mbuffer
     sanoid
-    
+    mailutils
+    postfix
   ];
 
   # Disable sleep/suspend
@@ -49,6 +51,29 @@
     AllowSuspendThenHibernate=no
     AllowHybridSleep=no
   '';
+
+  # Email notifications for system events
+  services.ssmtp = {
+    enable = true;
+    settings = {
+      root = "brottman@gmail.com";
+      mailhub = "localhost";
+      AuthUser = "";
+      AuthPass = "";
+      UseSTARTTLS = "NO";
+      FromLineOverride = "YES";
+    };
+  };
+
+  # Local mail service
+  services.postfix = {
+    enable = true;
+    relayPort = 25;
+    origin = "superheavy";
+    hostname = "superheavy";
+    domain = "brottman.local";
+    networks = [ "127.0.0.0/8" "10.0.0.0/8" "192.168.0.0/16" ];
+  };
 
   # Firewall
   networking.firewall = {
