@@ -68,7 +68,7 @@
   # Print Server - CUPS
   services.printing = {
     enable = true;
-    drivers = with pkgs; [ gutenprint cups-bjnp cups-filters brother_hl2270dw_lpr brother_hl2270dw_cupswrapper ];
+    drivers = with pkgs; [ gutenprint cups-bjnp cups-filters ];
     stateless = false;
     allowFrom = [ "all" ];
     listenAddresses = [ "*:631" ];
@@ -92,8 +92,7 @@
         name = "Brother-DCP-7065DN";
         location = "Office";
         deviceUri = "socket://192.168.4.2:9100";
-        model = "brother/brother-DCP-7065DN";
-        ppdName = "brother-DCP-7065DN";
+        model = "everywhere";
       }
     ];
   };
