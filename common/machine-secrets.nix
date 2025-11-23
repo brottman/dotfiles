@@ -90,32 +90,18 @@ in
     })
 
     # Apply SSH key configuration if enabled
-    (lib.mkIf cfg.sshKeys.enable (
-      let
-        # Build authorized_keys per user
-        authorizedKeysPerUser = lib.mapAttrs (userName: userKeys:
-          userKeys ++ cfg.sshKeys.globalAuthorizedKeys
-        ) cfg.sshKeys.authorizedKeys;
-      in
-      {
-        # Set authorized keys for each user
-        users.users = lib.foldl' (acc: item:
-          acc // {
-            ${item.name} = {
-              openssh.authorizedKeys.keys = item.keys;
-            };
-          }
-        ) {}
-        (lib.mapAttrsToList (name: keys: { inherit name keys; }) authorizedKeysPerUser);
+    (lib.mkIf cfg.sshKeys.enable {
+      # Set authorized keys for each user by extending the brian user
+      users.users.brian.openssh.authorizedKeys.keys = 
+        (cfg.sshKeys.authorizedKeys.brian or []) ++ cfg.sshKeys.globalAuthorizedKeys;
 
-        # Add trusted machines to known_hosts
-        environment.etc."ssh/ssh_known_hosts".text = lib.concatStringsSep "\n"
-          (lib.mapAttrsToList (name: key: "${name} ssh-ed25519 ${key}") cfg.trustedMachines)
-          + "\n";
+      # Add trusted machines to known_hosts
+      environment.etc."ssh/ssh_known_hosts".text = lib.concatStringsSep "\n"
+        (lib.mapAttrsToList (name: key: "${name} ssh-ed25519 ${key}") cfg.trustedMachines)
+        + "\n";
 
-        # Ensure SSH service is properly configured
-        services.openssh.enable = lib.mkDefault true;
-      }
-    ))
+      # Ensure SSH service is properly configured
+      services.openssh.enable = lib.mkDefault true;
+    })
   ];
 }
