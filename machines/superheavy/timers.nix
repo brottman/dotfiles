@@ -69,36 +69,37 @@
     serviceConfig = {
       Type = "oneshot";
       User = "root";
-      ExecStart = ''
-        ${pkgs.bash}/bin/bash -c '
-          SERVICE_NAME="%n"
-          HOSTNAME=$(hostname)
-          TIMESTAMP=$(date "+%Y-%m-%d %H:%M:%S")
-          
-          {
-            echo "Service Failure Alert"
-            echo "===================="
-            echo ""
-            echo "Hostname: $HOSTNAME"
-            echo "Timestamp: $TIMESTAMP"
-            echo "Service: $SERVICE_NAME"
-            echo ""
-            echo "Service Status:"
-            systemctl status "$SERVICE_NAME" || true
-            echo ""
-            echo "Recent Logs:"
-            journalctl -u "$SERVICE_NAME" -n 50 --no-pager || true
-          } | ${pkgs.bash}/bin/bash -c "{ echo 'From: root@superheavy'; echo 'To: brottman@gmail.com'; echo 'Subject: ALERT: Service Failed on $HOSTNAME - $SERVICE_NAME'; echo ''; cat; } | ${pkgs.msmtp}/bin/msmtp brottman@gmail.com"
-        '
-      '';
     };
+    script = ''
+      SERVICE_NAME="$1"
+      HOSTNAME=$(hostname)
+      TIMESTAMP=$(date "+%Y-%m-%d %H:%M:%S")
+      
+      {
+        echo "From: root@superheavy"
+        echo "To: brottman@gmail.com"
+        echo "Subject: ALERT: Service Failed on $HOSTNAME - $SERVICE_NAME"
+        echo ""
+        echo "Service Failure Alert"
+        echo "===================="
+        echo ""
+        echo "Hostname: $HOSTNAME"
+        echo "Timestamp: $TIMESTAMP"
+        echo "Service: $SERVICE_NAME"
+        echo ""
+        echo "Service Status:"
+        systemctl status "$SERVICE_NAME" || true
+        echo ""
+        echo "Recent Logs:"
+        journalctl -u "$SERVICE_NAME" -n 50 --no-pager || true
+      } | ${pkgs.msmtp}/bin/msmtp brottman@gmail.com
+    '';
   };
 
   # Monitoring service to check critical services are running
   systemd.services.critical-service-monitor = {
     description = "Monitor critical services and alert if down";
     script = ''
-      #!/bin/bash
       CRITICAL_SERVICES=("samba" "postfix" "docker" "zfs-scrub-monitor.timer")
       FAILED_SERVICES=()
       HOSTNAME=$(hostname)
@@ -112,6 +113,10 @@
       
       if [ ''${#FAILED_SERVICES[@]} -gt 0 ]; then
         {
+          echo "From: root@superheavy"
+          echo "To: brottman@gmail.com"
+          echo "Subject: ALERT: Critical services down on $HOSTNAME"
+          echo ""
           echo "Critical Service Alert"
           echo "===================="
           echo ""
@@ -123,7 +128,7 @@
           echo ""
           echo "System Status:"
           systemctl status --all | grep -E "failed|inactive" || true
-        } | ${pkgs.bash}/bin/bash -c "{ echo 'From: root@superheavy'; echo 'To: brottman@gmail.com'; echo 'Subject: ALERT: Critical services down on $HOSTNAME'; echo ''; cat; } | ${pkgs.msmtp}/bin/msmtp brottman@gmail.com"
+        } | ${pkgs.msmtp}/bin/msmtp brottman@gmail.com
       fi
     '';
     serviceConfig = {
