@@ -30,6 +30,15 @@
   # No GUI
   services.xserver.enable = false;
 
+  # Packages
+  environment.systemPackages = with pkgs; [
+    conda
+    doublecmd
+    libatasmart
+    sanoid
+    
+  ];
+
   # Disable sleep/suspend
   systemd.sleep.extraConfig = ''
     [Sleep]
