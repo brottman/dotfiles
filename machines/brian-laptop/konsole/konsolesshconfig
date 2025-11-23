@@ -70,13 +70,3 @@ profileName=Don't Change
 sshkey=
 useSshConfig=false
 username=brian
-
-[SSH Config][superheavy (local)]
-hostname=192.168.4.20
-identifier=superheavy (local)
-importedFromSshConfig=false
-port=22
-profileName=Don't Change
-sshkey=
-useSshConfig=false
-username=brian
