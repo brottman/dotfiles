@@ -5,7 +5,6 @@
   # File Sharing - Samba
   services.samba = {
     enable = true;
-    securityType = "user";
     openFirewall = false; # We manage firewall manually
     settings = {
       global = {
@@ -14,7 +13,7 @@
         "netbios name" = "superheavy";
         security = "user";
         "passdb backend" = "tdbsam";
-        "hosts allow" = "192.168.* 10.* 127.* localhost";
+        "hosts allow" = "192.168.* 10.* 100.* 127.* localhost";
         "hosts deny" = "0.0.0.0/0";
         "guest account" = "nobody";
       };
