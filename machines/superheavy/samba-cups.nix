@@ -2,12 +2,6 @@
 { config, pkgs, ... }:
 
 {
-  # Samba user configuration
-  services.samba.extraConfig = ''
-    [global]
-    passdb backend = tdbsam
-  '';
-
   # File Sharing - Samba
   services.samba = {
     enable = true;
@@ -18,6 +12,7 @@
         "server string" = "superheavy";
         "netbios name" = "superheavy";
         security = "user";
+        "passdb backend" = "tdbsam";
         "hosts allow" = "192.168.* 10.* 127.* localhost";
         "hosts deny" = "0.0.0.0/0";
         "guest account" = "nobody";
