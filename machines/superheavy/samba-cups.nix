@@ -36,7 +36,7 @@
         "directory mask" = "0755";
       };
       data = {
-        path = "/datapool/docker";
+        path = "/datapool/data";
         browseable = "yes";
         "read only" = "no";
         "guest ok" = "no";
