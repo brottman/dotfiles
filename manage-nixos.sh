@@ -347,23 +347,11 @@ interactive_mode() {
         
         case "$choice" in
             1)
-                read -p "Enter machine name (or press Enter for current): " machine
-                read -p "Verbose output? (y/n): " verbose_choice
-                if [[ "$verbose_choice" == "y" || "$verbose_choice" == "Y" ]]; then
-                    cmd_build "$machine" --verbose && cmd_switch "$machine" --verbose
-                else
-                    cmd_build "$machine" && cmd_switch "$machine"
-                fi
+                cmd_build && cmd_switch
                 exit 0
                 ;;
             2)
-                read -p "Enter machine name (or press Enter for current): " machine
-                read -p "Verbose output? (y/n): " verbose_choice
-                if [[ "$verbose_choice" == "y" || "$verbose_choice" == "Y" ]]; then
-                    cmd_build "$machine" --verbose && cmd_boot "$machine" --verbose
-                else
-                    cmd_build "$machine" && cmd_boot "$machine"
-                fi
+                cmd_build && cmd_boot
                 read -p "Would you like to reboot now? (y/n): " reboot_choice
                 if [[ "$reboot_choice" == "y" || "$reboot_choice" == "Y" ]]; then
                     sudo reboot
@@ -372,25 +360,13 @@ interactive_mode() {
                 fi
                 ;;
             3)
-                read -p "Enter machine name (or press Enter for current): " machine
-                read -p "Verbose output? (y/n): " verbose_choice
-                if [[ "$verbose_choice" == "y" || "$verbose_choice" == "Y" ]]; then
-                    cmd_build "$machine" --verbose
-                else
-                    cmd_build "$machine"
-                fi
+                cmd_build
                 ;;
             4)
-                read -p "Enter machine name (or press Enter for current): " machine
-                cmd_dry_run "$machine"
+                cmd_dry_run
                 ;;
             5)
-                read -p "Verbose output? (y/n): " verbose_choice
-                if [[ "$verbose_choice" == "y" || "$verbose_choice" == "Y" ]]; then
-                    cmd_rebuild_all --verbose
-                else
-                    cmd_rebuild_all
-                fi
+                cmd_rebuild_all
                 ;;
             6)
                 cmd_update
