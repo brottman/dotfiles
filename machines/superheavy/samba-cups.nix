@@ -68,7 +68,7 @@
   # Print Server - CUPS
   services.printing = {
     enable = true;
-    drivers = with pkgs; [ gutenprint cups-bjnp cups-filters ];
+    drivers = with pkgs; [ gutenprint cups-bjnp cups-filters brlaser brgenml1cupswrapper ];
     stateless = false;
     allowFrom = [ "all" ];
     listenAddresses = [ "*:631" ];
@@ -84,16 +84,4 @@
     openFirewall = false; # We manage firewall manually
   };
 
-  # Configure network printers
-  hardware.printers = {
-    ensureDefaultPrinter = "Brother-DCP-7065DN";
-    ensurePrinters = [
-      {
-        name = "Brother-DCP-7065DN";
-        location = "Office";
-        deviceUri = "ipp://192.168.4.2";
-        model = "everywhere";
-      }
-    ];
-  };
 }
