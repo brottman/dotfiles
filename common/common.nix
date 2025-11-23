@@ -66,9 +66,9 @@
   services.openssh = {
     enable = true;
     settings = {
-      PasswordAuthentication = true;
+      PasswordAuthentication = false;
       PubkeyAuthentication = true;
-      PermitRootLogin = "yes";
+      PermitRootLogin = "no";
       X11Forwarding = false;
       AllowUsers = [ "brian" ];
     };

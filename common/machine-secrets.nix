@@ -46,11 +46,13 @@ in
           authorizedKeys = lib.mkOption {
             type = lib.types.attrsOf (lib.types.listOf lib.types.str);
             default = {};
-            description = "Authorized SSH public keys per user (e.g., { brian = [\"ssh-ed25519 ...\"]; })";
+            description = "Authorized SSH public keys per user (format: ssh-ed25519 <key-material> <comment>)";
             example = {
               brian = [
-                "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExampleKey1 brian@laptop"
-                "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExampleKey2 brian@server"
+                "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIJO8uo1P2tkol5uYYPtn/+SPp3xMUTPyuURcgsyg0jk brian@brian-laptop"
+                "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHJLMqTqjGGiFC8jjGi4hhXfk3mPz7ebJ8VJk5xaDmQb brian@superheavy"
+                "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHJM+DQTYuxIUkny90TbnL4xEfIN7jWzdhsFYkCDhePo brian@backup"
+                "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILBVZabueeT2ESBtgz3blxhE39JQv736W0uDoZmRxP0D brian@docker"
               ];
             };
           };
@@ -71,10 +73,12 @@ in
     trustedMachines = lib.mkOption {
       type = lib.types.attrsOf lib.types.str;
       default = {};
-      description = "Map of machine names to their SSH host public keys for SSH known_hosts";
+      description = "Map of machine names to their SSH ed25519 host public key material (just the key, without 'ssh-ed25519' prefix)";
       example = {
-        "superheavy" = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExampleHostKey1 superheavy";
-        "docker" = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExampleHostKey2 docker";
+        "brian-laptop" = "AAAAIIJO8uo1P2tkol5uYYPtn/+SPp3xMUTPyuURcgsyg0jk";
+        "superheavy" = "AAAAIHJLMqTqjGGiFC8jjGi4hhXfk3mPz7ebJ8VJk5xaDmQb";
+        "backup" = "AAAAIHJM+DQTYuxIUkny90TbnL4xEfIN7jWzdhsFYkCDhePo";
+        "docker" = "AAAAILBVZabueeT2ESBtgz3blxhE39JQv736W0uDoZmRxP0D";
       };
     };
   };
@@ -86,19 +90,24 @@ in
     })
 
     # Apply SSH key configuration if enabled
-    (lib.mkIf cfg.sshKeys.enable {
-      # Set authorized keys for users
-      users.users = lib.mapAttrs (userName: userKeys:
-        {
-          openssh.authorizedKeys.keys = 
-            userKeys ++ cfg.sshKeys.globalAuthorizedKeys;
-        }
-      ) cfg.sshKeys.authorizedKeys;
+    (lib.mkIf cfg.sshKeys.enable (
+      let
+        # Build authorized_keys per user
+        authorizedKeysPerUser = lib.mapAttrs (userName: userKeys:
+          userKeys ++ cfg.sshKeys.globalAuthorizedKeys
+        ) cfg.sshKeys.authorizedKeys;
+      in
+      {
+        # Set authorized keys for each user
+        users.users = lib.mapAttrs (userName: keys: {
+          openssh.authorizedKeys.keys = keys;
+        }) authorizedKeysPerUser;
 
-      # Add trusted machines to known_hosts
-      environment.etc."ssh/ssh_known_hosts".text = lib.concatStringsSep "\n"
-        (lib.mapAttrsToList (name: key: "${name} ssh-ed25519 ${key}") cfg.trustedMachines)
-        + "\n";
-    })
+        # Add trusted machines to known_hosts
+        environment.etc."ssh/ssh_known_hosts".text = lib.concatStringsSep "\n"
+          (lib.mapAttrsToList (name: key: "${name} ssh-ed25519 ${key}") cfg.trustedMachines)
+          + "\n";
+      }
+    ))
   ];
 }
