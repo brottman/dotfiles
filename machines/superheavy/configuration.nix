@@ -12,7 +12,7 @@
       enable = true;
       
       # Your laptop's host key (so other machines can SSH to it)
-      hostPublicKey = "AAAAC3NzaC1lZDI1NTE5AAAAIHJLMqTqjGGiFC8jjGi4hhXfk3mPz7ebJ8VJk5xaDmQb superheavy";
+      hostPublicKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHJLMqTqjGGiFC8jjGi4hhXfk3mPz7ebJ8VJk5xaDmQb superheavy";
       
       # Authorized keys for the brian user on this machine
       authorizedKeys = {
@@ -27,10 +27,10 @@
     
     # Store the host public keys of machines you want to SSH to
     trustedMachines = {
-      "brian-laptop" = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIJO8uo1P2tkol5uYYPtn/+SPp3xMUTPyuURcgsyg0jk brian@brian-laptop";
-      "superheavy" = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHJLMqTqjGGiFC8jjGi4hhXfk3mPz7ebJ8VJk5xaDmQb brian@superheavy";
-      "backup" = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHJM+DQTYuxIUkny90TbnL4xEfIN7jWzdhsFYkCDhePo brian@backup";
-      "docker" = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILBVZabueeT2ESBtgz3blxhE39JQv736W0uDoZmRxP0D brian@docker";
+      "brian-laptop" = "AAAAIIJO8uo1P2tkol5uYYPtn/+SPp3xMUTPyuURcgsyg0jk";
+      "superheavy" = "AAAAIHJLMqTqjGGiFC8jjGi4hhXfk3mPz7ebJ8VJk5xaDmQb";
+      "backup" = "AAAAIHJM+DQTYuxIUkny90TbnL4xEfIN7jWzdhsFYkCDhePo";
+      "docker" = "AAAAILBVZabueeT2ESBtgz3blxhE39JQv736W0uDoZmRxP0D";
     };
   };
 

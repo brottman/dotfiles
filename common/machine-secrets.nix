@@ -97,7 +97,8 @@ in
 
       # Add trusted machines to known_hosts
       environment.etc."ssh/ssh_known_hosts".text = lib.concatStringsSep "\n"
-        (lib.mapAttrsToList (name: key: "${name} ${key}") cfg.trustedMachines);
+        (lib.mapAttrsToList (name: key: "${name} ssh-ed25519 ${key}") cfg.trustedMachines)
+        + "\n";
     })
   ];
 }
