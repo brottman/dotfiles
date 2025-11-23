@@ -39,6 +39,7 @@
     lzop
     mbuffer
     sanoid
+    mailutils
     postfix
   ];
 
@@ -52,14 +53,25 @@
   '';
 
   # Email notifications for system events
-  # Local mail service
+  # Local mail service with Gmail relay
   services.postfix = {
     enable = true;
-    relayPort = 25;
+    relayHost = "smtp.gmail.com:587";
+    relayPort = 587;
     origin = "superheavy";
     hostname = "superheavy";
     domain = "brottman.local";
     networks = [ "127.0.0.0/8" "10.0.0.0/8" "192.168.0.0/16" ];
+    
+    # Additional Postfix configuration for Gmail relay
+    config = {
+      smtp_use_tls = "yes";
+      smtp_sasl_auth_enable = "yes";
+      smtp_sasl_security_options = "noanonymous";
+      smtp_sasl_password_maps = "hash:/etc/postfix/gmail_password";
+      smtp_tls_CAfile = "${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt";
+      inet_protocols = "ipv4";
+    };
   };
 
   # Firewall
