@@ -70,8 +70,8 @@
     };
   };
 
-  # Allow both msmtp and postfix to coexist
-  services.mail.sendmailSetuidWrapper.setgid = lib.mkForce false;
+  # Let Postfix provide the sendmail wrapper
+  services.mail.sendmailSetuidWrapper.program = lib.mkForce "${pkgs.postfix}/bin/sendmail";
 
   # Local mail service
   services.postfix = {
