@@ -13,9 +13,14 @@ command=cp ~/.config/konsolequickcommandsconfig ~/dotfiles/machines/brian-laptop
 name=copy konsole
 tooltip=
 
-[1 os][git commit]
+[1 os][git commit dotfiles]
 command=# shellcheck disable=SC2164\ncp ~/.config/konsolequickcommandsconfig ~/dotfiles/machines/brian-laptop/konsole/;\ncp ~/.config/konsolesshconfig ~/dotfiles/machines/brian-laptop/konsole/;\ncd ~/dotfiles;\ngit add .;\ngit commit -m "update";\ngit push;
-name=git commit
+name=git commit dotfiles
+tooltip=
+
+[1 os][git commit skylight]
+command=# shellcheck disable=SC2164\ncd /data/Seafile/Brian/Python/Skylight/;\ngit add .;\ngit commit -m "update '[%Y-%m-%d %H:%M:%S]'";\ngit push;
+name=git commit skylight
 tooltip=
 
 [1 os][nixos switch]
