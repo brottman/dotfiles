@@ -4,6 +4,7 @@
 {
   imports = [
     ../../common/common.nix
+    ./timers.nix
   ];
 
   # ZFS support
