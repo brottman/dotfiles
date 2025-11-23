@@ -76,6 +76,30 @@
     };
   };
 
+  # Postfix Gmail credentials and sender mapping
+  environment.etc = {
+    "postfix/gmail_password".text = "brottman@gmail.com kcxl zipl nlst opau";
+    "postfix/sender_canonical".text = "/.*/ brottman@gmail.com";
+  };
+
+  # Generate the postmap database files after Postfix starts
+  systemd.services.postfix-db-setup = {
+    description = "Setup Postfix database files";
+    wantedBy = [ "multi-user.target" ];
+    after = [ "postfix.service" ];
+    serviceConfig = {
+      Type = "oneshot";
+      User = "root";
+      RemainAfterExit = true;
+    };
+    script = ''
+      ${pkgs.postfix}/bin/postmap /etc/postfix/gmail_password
+      ${pkgs.postfix}/bin/postmap /etc/postfix/sender_canonical
+      chmod 600 /etc/postfix/gmail_password.db /etc/postfix/sender_canonical.db
+      ${pkgs.postfix}/bin/postfix reload
+    '';
+  };
+
   # Firewall
   networking.firewall = {
     enable = true;
