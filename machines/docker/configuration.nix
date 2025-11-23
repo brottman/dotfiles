@@ -4,7 +4,7 @@
 {
   imports = [
     ../../common/common.nix
-    ../../common/machine-secrets.nix
+   # ../../common/machine-secrets.nix
   ];
 
   machine-secrets = {
