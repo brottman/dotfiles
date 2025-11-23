@@ -91,7 +91,7 @@
       {
         name = "Brother-DCP-7065DN";
         location = "Office";
-        deviceUri = "socket://192.168.4.2:9100";
+        deviceUri = "ipp://192.168.4.2";
         model = "everywhere";
       }
     ];
