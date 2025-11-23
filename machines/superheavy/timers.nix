@@ -35,7 +35,13 @@
       } > "$REPORT"
       
       # Send email report
-      ${pkgs.mailutils}/bin/mail -s "ZFS Scrub Report - $(hostname) - $TIMESTAMP" brottman@gmail.com < "$REPORT"
+      {
+        echo "From: root@superheavy"
+        echo "To: brottman@gmail.com"
+        echo "Subject: ZFS Scrub Report - $(hostname) - $TIMESTAMP"
+        echo ""
+        cat "$REPORT"
+      } | ${pkgs.msmtp}/bin/msmtp brottman@gmail.com
       
       # Cleanup
       rm -f "$REPORT"
@@ -82,7 +88,7 @@
             echo ""
             echo "Recent Logs:"
             journalctl -u "$SERVICE_NAME" -n 50 --no-pager || true
-          } | ${pkgs.mailutils}/bin/mail -s "ALERT: Service Failed on $HOSTNAME - $SERVICE_NAME" brottman@gmail.com
+          } | ${pkgs.bash}/bin/bash -c "{ echo 'From: root@superheavy'; echo 'To: brottman@gmail.com'; echo 'Subject: ALERT: Service Failed on $HOSTNAME - $SERVICE_NAME'; echo ''; cat; } | ${pkgs.msmtp}/bin/msmtp brottman@gmail.com"
         '
       '';
     };
@@ -117,7 +123,7 @@
           echo ""
           echo "System Status:"
           systemctl status --all | grep -E "failed|inactive" || true
-        } | ${pkgs.mailutils}/bin/mail -s "ALERT: Critical services down on $HOSTNAME" brottman@gmail.com
+        } | ${pkgs.bash}/bin/bash -c "{ echo 'From: root@superheavy'; echo 'To: brottman@gmail.com'; echo 'Subject: ALERT: Critical services down on $HOSTNAME'; echo ''; cat; } | ${pkgs.msmtp}/bin/msmtp brottman@gmail.com"
       fi
     '';
     serviceConfig = {

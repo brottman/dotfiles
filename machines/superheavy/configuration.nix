@@ -39,7 +39,7 @@
     lzop
     mbuffer
     sanoid
-    mailutils
+    msmtp
     postfix
   ];
 
@@ -53,15 +53,20 @@
   '';
 
   # Email notifications for system events
-  services.ssmtp = {
+  programs.msmtp = {
     enable = true;
-    settings = {
-      root = "brottman@gmail.com";
-      mailhub = "localhost";
-      AuthUser = "";
-      AuthPass = "";
-      UseSTARTTLS = "NO";
-      FromLineOverride = "YES";
+    defaults = {
+      aliases = "/etc/aliases";
+      logfile = "~/.msmtp.log";
+    };
+    accounts = {
+      default = {
+        host = "localhost";
+        port = 25;
+        from = "brottman@gmail.com";
+        user = "";
+        passwordeval = "";
+      };
     };
   };
 
