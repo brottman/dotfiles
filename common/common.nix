@@ -29,6 +29,7 @@
   environment.systemPackages = with pkgs; [
     aria2
     conda
+    fastfetch
     git
     vim
     nano

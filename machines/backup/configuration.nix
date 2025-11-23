@@ -30,6 +30,11 @@
   # No GUI
   services.xserver.enable = false;
 
+  # Packages
+  environment.systemPackages = with pkgs; [
+    sanoid
+  ];
+
   # Disable sleep/suspend
   systemd.sleep.extraConfig = ''
     [Sleep]
