@@ -68,35 +68,38 @@
       smtp_use_tls = "yes";
       smtp_sasl_auth_enable = "yes";
       smtp_sasl_security_options = "noanonymous";
-      smtp_sasl_password_maps = "hash:/etc/postfix/gmail_password";
+      smtp_sasl_password_maps = "hash:/var/lib/postfix/gmail_password";
       smtp_tls_CAfile = "${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt";
       inet_protocols = "ipv4";
-      sender_canonical_maps = "regexp:/etc/postfix/sender_canonical";
+      sender_canonical_maps = "regexp:/var/lib/postfix/sender_canonical";
       sender_canonical_classes = "envelope_sender, header_sender";
     };
   };
 
-  # Postfix Gmail credentials and sender mapping
+  # Postfix Gmail credentials and sender mapping in /var/lib/postfix
   environment.etc = {
-    "postfix/gmail_password".text = "brottman@gmail.com kcxl zipl nlst opau";
-    "postfix/sender_canonical".text = "/.*/ brottman@gmail.com";
+    "postfix-setup/gmail_password".text = "brottman@gmail.com kcxl zipl nlst opau";
+    "postfix-setup/sender_canonical".text = "/.*/ brottman@gmail.com";
   };
 
   # Generate the postmap database files after Postfix starts
   systemd.services.postfix-db-setup = {
     description = "Setup Postfix database files";
     wantedBy = [ "multi-user.target" ];
-    after = [ "postfix.service" ];
+    before = [ "postfix.service" ];
     serviceConfig = {
       Type = "oneshot";
       User = "root";
       RemainAfterExit = true;
     };
     script = ''
-      ${pkgs.postfix}/bin/postmap /etc/postfix/gmail_password
-      ${pkgs.postfix}/bin/postmap /etc/postfix/sender_canonical
-      chmod 600 /etc/postfix/gmail_password.db /etc/postfix/sender_canonical.db
-      ${pkgs.postfix}/bin/postfix reload
+      mkdir -p /var/lib/postfix
+      cp /etc/postfix-setup/gmail_password /var/lib/postfix/gmail_password
+      cp /etc/postfix-setup/sender_canonical /var/lib/postfix/sender_canonical
+      ${pkgs.postfix}/bin/postmap /var/lib/postfix/gmail_password
+      ${pkgs.postfix}/bin/postmap /var/lib/postfix/sender_canonical
+      chmod 600 /var/lib/postfix/gmail_password* /var/lib/postfix/sender_canonical*
+      chown postfix:postfix /var/lib/postfix/gmail_password* /var/lib/postfix/sender_canonical*
     '';
   };
 
