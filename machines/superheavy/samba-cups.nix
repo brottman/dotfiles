@@ -6,7 +6,6 @@
   services.samba = {
     enable = true;
     openFirewall = false; # We manage firewall manually
-    securityType = "user";
     settings = {
       global = {
         workgroup = "WORKGROUP";
@@ -18,8 +17,6 @@
         "guest account" = "nobody";
         "map to guest" = "Bad User";
       };
-    };
-    shares = {
       public = {
         path = "/datapool/data";
         browseable = "yes";
@@ -55,7 +52,7 @@
   # CUPS web interface and printer discovery
   services.avahi = {
     enable = true;
-    nssmdns = true;
+    nssmdns4 = true;
     openFirewall = false; # We manage firewall manually
   };
 }
