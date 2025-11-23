@@ -41,7 +41,7 @@
         echo "Subject: ZFS Scrub Report - $(hostname) - $TIMESTAMP"
         echo ""
         cat "$REPORT"
-      } | ${pkgs.msmtp}/bin/msmtp brottman@gmail.com
+      } | ${pkgs.postfix}/bin/sendmail brottman@gmail.com
       
       # Cleanup
       rm -f "$REPORT"
@@ -92,7 +92,7 @@
         echo ""
         echo "Recent Logs:"
         journalctl -u "$SERVICE_NAME" -n 50 --no-pager || true
-      } | ${pkgs.msmtp}/bin/msmtp brottman@gmail.com
+      } | ${pkgs.postfix}/bin/sendmail brottman@gmail.com
     '';
   };
 
@@ -128,7 +128,7 @@
           echo ""
           echo "System Status:"
           systemctl status --all | grep -E "failed|inactive" || true
-        } | ${pkgs.msmtp}/bin/msmtp brottman@gmail.com
+        } | ${pkgs.postfix}/bin/sendmail brottman@gmail.com
       fi
     '';
     serviceConfig = {

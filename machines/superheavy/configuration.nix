@@ -39,7 +39,6 @@
     lzop
     mbuffer
     sanoid
-    msmtp
     postfix
   ];
 
@@ -53,26 +52,6 @@
   '';
 
   # Email notifications for system events
-  programs.msmtp = {
-    enable = true;
-    defaults = {
-      aliases = "/etc/aliases";
-      logfile = "~/.msmtp.log";
-    };
-    accounts = {
-      default = {
-        host = "localhost";
-        port = 25;
-        from = "brottman@gmail.com";
-        user = "";
-        passwordeval = "";
-      };
-    };
-  };
-
-  # Let Postfix provide the sendmail wrapper
-  services.mail.sendmailSetuidWrapper.program = lib.mkForce "${pkgs.postfix}/bin/sendmail";
-
   # Local mail service
   services.postfix = {
     enable = true;
