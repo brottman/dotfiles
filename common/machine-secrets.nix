@@ -98,12 +98,16 @@ in
         ) cfg.sshKeys.authorizedKeys;
       in
       {
-        # Set authorized keys for each user - using lib.mapAttrs' which properly merges
-        users.users = lib.mapAttrs' (userName: keys:
-          lib.nameValuePair userName {
-            openssh.authorizedKeys.keys = keys;
+        # Set authorized keys for each user
+        # Using foldl' to properly merge multiple user configurations
+        users.users = lib.foldl' (acc: item:
+          acc // {
+            ${item.name} = {
+              openssh.authorizedKeys.keys = item.keys;
+            };
           }
-        ) authorizedKeysPerUser;
+        ) {}
+        (lib.mapAttrsToList (name: keys: { inherit name keys; }) authorizedKeysPerUser);
 
         # Add trusted machines to known_hosts
         environment.etc."ssh/ssh_known_hosts".text = lib.concatStringsSep "\n"
