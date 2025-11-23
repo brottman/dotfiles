@@ -36,5 +36,35 @@ After deploying this configuration:
 
 4. **Adjust share paths** if your ZFS datapool is mounted elsewhere (check with `zfs list`).
 
+## Adding Additional Samba Users
+
+To add more Samba users to the configuration, edit `machines/superheavy/samba-cups.nix` and uncomment the `users` list in the `services.samba` section. There are two approaches:
+
+### Option 1: Using sops-nix (Recommended for secrets)
+If you're using `sops-nix` for secrets management:
+```nix
+services.samba = {
+  # ... existing config ...
+  users = [
+    {
+      name = "brian";
+      passwordFile = config.sops.secrets.samba_brian_password.path;
+    }
+    {
+      name = "alice";
+      passwordFile = config.sops.secrets.samba_alice_password.path;
+    }
+  ];
+};
+```
+
+### Option 2: Manual password management
+Alternatively, manage passwords manually after deployment:
+```bash
+sudo smbpasswd -a username
+```
+
+**Important:** The system user must exist in your NixOS configuration (`users.users`) before you can add them as a Samba user.
+
 The configuration is ready to deploy. After rebuilding and rebooting, the file shares and print server will be available on your network.
 
