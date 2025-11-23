@@ -19,7 +19,7 @@
     '';
     shares = {
       public = {
-        path = "/mnt/datapool/shared";
+        path = "/datapool/data";
         browseable = "yes";
         "read only" = "no";
         "guest ok" = "yes";
@@ -27,7 +27,7 @@
         "directory mask" = "0755";
       };
       private = {
-        path = "/mnt/datapool/private";
+        path = "/datapool/docker";
         browseable = "yes";
         "read only" = "no";
         "guest ok" = "no";

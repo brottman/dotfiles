@@ -4,7 +4,7 @@
 {
   imports = [
     ../../common/common.nix
-    #./samba-cups.nix
+    ./samba-cups.nix
   ];
 
   # ZFS support
