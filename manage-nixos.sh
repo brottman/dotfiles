@@ -328,10 +328,13 @@ cmd_pull() {
 }
 
 interactive_mode() {
+    local current_machine
+    current_machine=$(get_current_machine 2>/dev/null || echo "unknown")
+    
     while true; do
         echo ""
         echo "=========================================="
-        echo "NixOS Configuration Manager"
+        echo "NixOS Configuration Manager - $current_machine"
         echo "=========================================="
         echo "1. Build and apply configuration immediately"
         echo "2. Build and apply configuration on next boot"
