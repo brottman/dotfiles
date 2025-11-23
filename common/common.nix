@@ -50,6 +50,8 @@
     createHome = true;
     shell = pkgs.bash;
     extraGroups = [ "wheel" "networkmanager" "docker" "libvirtd" "kvm" "tailscale" ];
+    # Generate SSH key if it doesn't exist
+    openssh.authorizedKeys.keyOptions = [ "no-agent-forwarding" "no-X11-forwarding" ];
   };
 
   # Sudo configuration

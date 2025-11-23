@@ -2,6 +2,20 @@
 
 This guide explains how to set up SSH trust between your machines using the `machine-secrets` module.
 
+## Step 0: Generate SSH Keys on Each Machine
+
+Before you can SSH between machines, each machine needs a private SSH key. On each machine, run:
+
+```bash
+bash ~/dotfiles/generate-ssh-keys.sh
+```
+
+This will:
+1. Create `~/.ssh/id_ed25519` if it doesn't exist
+2. Output your public key
+
+**You must run this on each machine first, before proceeding to Step 1.**
+
 ## Step 1: Gather SSH Host Public Keys
 
 You need to collect the SSH host public key from each machine. On each machine, run:
@@ -52,19 +66,25 @@ ssh-keyscan -t ed25519 localhost
 
 ## Step 2: Collect Your SSH Public Keys
 
-For each user on each machine, get their SSH public key:
+After running the key generation script on each machine, gather the public keys. The script already printed them, but you can also get them with:
 
 ```bash
 cat ~/.ssh/id_ed25519.pub
-# or
-cat ~/.ssh/id_rsa.pub
 ```
 
-If the key doesn't exist, generate one:
-
-```bash
-ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -N ""
+The output will look like:
 ```
+ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIXxxxxx... brian@machine-name
+```
+
+You need to copy the **entire line** (the full key with the `ssh-ed25519` prefix).
+
+### Collect from all machines:
+
+- Run `cat ~/.ssh/id_ed25519.pub` on **brian-laptop** and copy the output
+- Run `cat ~/.ssh/id_ed25519.pub` on **superheavy** and copy the output
+- Run `cat ~/.ssh/id_ed25519.pub` on **backup** and copy the output
+- Run `cat ~/.ssh/id_ed25519.pub` on **docker** and copy the output
 
 ## Step 3: Configure machine-secrets in Each Machine
 
@@ -192,6 +212,41 @@ machine-secrets = {
 ```
 
 This adds the master key to all users' authorized_keys files.
+
+## Troubleshooting
+
+### "Permission denied (publickey,keyboard-interactive)"
+
+This error means the SSH server is not accepting your public key. Try:
+
+1. **Verify your private key exists on the client machine:**
+   ```bash
+   ls -la ~/.ssh/id_ed25519
+   ```
+   If it doesn't exist, run: `bash ~/dotfiles/generate-ssh-keys.sh`
+
+2. **Verify the public key is in authorized_keys on the target machine:**
+   ```bash
+   cat ~/.ssh/authorized_keys
+   ```
+   The key from your client machine should be listed there.
+
+3. **Check SSH service is running on the target machine:**
+   ```bash
+   sudo systemctl status sshd
+   ```
+
+4. **Test with verbose output to see what's happening:**
+   ```bash
+   ssh -vvv brian@<target-machine>
+   ```
+   Look for lines like "Offering public key:" to see which keys are being tried.
+
+5. **Verify the configuration was applied:**
+   ```bash
+   sudo nixos-rebuild switch --flake .#<machine-name>
+   ```
+   Then restart SSH: `sudo systemctl restart sshd`
 
 ## Security Notes
 
