@@ -7,16 +7,18 @@
     enable = true;
     openFirewall = false; # We manage firewall manually
     securityType = "user";
-    extraConfig = ''
-      workgroup = WORKGROUP
-      server string = superheavy
-      netbios name = superheavy
-      security = user
-      hosts allow = 192.168. 10. 127. localhost
-      hosts deny = 0.0.0.0/0
-      guest account = nobody
-      map to guest = Bad User
-    '';
+    settings = {
+      global = {
+        workgroup = "WORKGROUP";
+        "server string" = "superheavy";
+        "netbios name" = "superheavy";
+        security = "user";
+        "hosts allow" = "192.168. 10. 127. localhost";
+        "hosts deny" = "0.0.0.0/0";
+        "guest account" = "nobody";
+        "map to guest" = "Bad User";
+      };
+    };
     shares = {
       public = {
         path = "/datapool/data";
