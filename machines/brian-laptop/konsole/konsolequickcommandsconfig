@@ -1,5 +1,5 @@
 [1 os][Skylight]
-command=cd /data/Seafile/Brian/Python/Skylight/ && python manage.py runserver
+command=cd /data/Seafile/Brian/Python/skylight/ && python manage.py runserver
 name=Skylight
 tooltip=
 
