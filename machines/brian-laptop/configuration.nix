@@ -200,7 +200,7 @@
     vlc
     vscode
     wine
-    zoom
+    zoom-us
   ];
 
   # Environment variables
