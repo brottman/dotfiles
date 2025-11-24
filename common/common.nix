@@ -13,6 +13,7 @@
       cores = 0;
       max-jobs = "auto";
       experimental-features = [ "nix-command" "flakes" ];
+      download-buffer-size = 536870912; # 512 MiB
     };
     gc = {
       automatic = true;
