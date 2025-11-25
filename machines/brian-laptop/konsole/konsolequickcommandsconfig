@@ -1,5 +1,5 @@
 [1 os][Skylight]
-command=cd /data/Seafile/Brian/Python/skylight/ && python manage.py runserver
+command=# shellcheck disable=SC2164\ncd /data/Seafile/Brian/Python/skylight/;\nsh /data/Seafile/Brian/Python/skylight/start.sh;
 name=Skylight
 tooltip=
 
@@ -51,6 +51,11 @@ tooltip=
 [1 os][shutdown]
 command=sudo systemctl shutdown now
 name=shutdown
+tooltip=
+
+[1 os][stoxai]
+command=sh /data/Seafile/Brian/Coding/stoxai/start.sh
+name=stoxai
 tooltip=
 
 [2 docker][cups-samba bash]
