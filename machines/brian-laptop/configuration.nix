@@ -172,6 +172,7 @@
     bluez
     bluez-tools
     code-cursor
+    devenv
     dtrx # file extractor
     exiftool
     ffmpeg

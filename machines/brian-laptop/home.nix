@@ -1,5 +1,6 @@
 { config, pkgs, ... }:
 {
+  imports = [ ./obs-studio.nix ];
   # Required by Home Manager; set once and bump only after reading release notes.
   home.stateVersion = "25.05";
   
