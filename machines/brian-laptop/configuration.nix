@@ -171,6 +171,7 @@
     anki
     bluez
     bluez-tools
+    google-chrome
     code-cursor
     devenv
     dtrx # file extractor
