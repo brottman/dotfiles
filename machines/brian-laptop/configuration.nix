@@ -185,7 +185,6 @@
     lutris
     pinta
     prismlauncher
-    #python3
     rclone
     remmina
     restic
