@@ -162,8 +162,22 @@
   # Firewall
   networking.firewall = {
     enable = true;
-    allowedTCPPorts = [ ];
+    allowedTCPPorts = [ 80 443 ];
     allowedUDPPorts = [ ];
+  };
+
+  # Nginx web server
+  services.nginx = {
+    enable = true;
+    virtualHosts = {
+      "localhost" = {
+        root = "/home/brian/html";
+        listen = [
+          { addr = "0.0.0.0"; port = 80; }
+        ];
+        locations."/".extraConfig = "autoindex on;";
+      };
+    };
   };
 
   # Additional packages for laptop
@@ -184,6 +198,7 @@
     joplin-desktop
     lmstudio
     lutris
+    micromamba
     pinta
     prismlauncher
     rclone
