@@ -37,3 +37,13 @@ Run sudo nixos-rebuild switch --flake .#<machine-name>
 
 The setup is completely declarative—you can safely store it in git, and machines will automatically configure SSH trust when you rebuild.
 
+
+conda env list
+
+conda create -n comfyui
+conda create -n skylight python=3.14
+conda create -n stoxai python=3.12
+
+conda activate comfyui
+conda activate skylight
+conda activate stoxai
