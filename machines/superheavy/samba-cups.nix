@@ -87,14 +87,33 @@
   # Set Samba password from SOPS secret
   systemd.services.samba-set-password = {
     description = "Set Samba password for brian user";
-    after = [ "samba.service" "sops-nix.service" ];
+    after = [ "samba.service" "network.target" ];
+    wants = [ "samba.service" ];
     wantedBy = [ "multi-user.target" ];
     serviceConfig = {
       Type = "oneshot";
       RemainAfterExit = true;
     };
     script = ''
-      PASSWORD=$(cat ${config.sops.secrets.samba_brian_password.path})
+      SECRET_FILE="${config.sops.secrets.samba_brian_password.path}"
+      
+      # Wait for secret file to be available (with timeout)
+      # Secrets are created during system activation, so they should exist
+      # but we wait a bit in case activation is still running
+      TIMEOUT=30
+      ELAPSED=0
+      while [ ! -f "$SECRET_FILE" ] && [ $ELAPSED -lt $TIMEOUT ]; do
+        sleep 1
+        ELAPSED=$((ELAPSED + 1))
+      done
+      
+      if [ ! -f "$SECRET_FILE" ]; then
+        echo "Error: Secret file $SECRET_FILE not found after $TIMEOUT seconds"
+        echo "This usually means sops-nix activation hasn't completed yet."
+        exit 1
+      fi
+      
+      PASSWORD=$(cat "$SECRET_FILE")
       
       # Check if user already exists in Samba
       if ! ${pkgs.samba}/bin/pdbedit -L 2>/dev/null | grep -q "^brian:"; then
