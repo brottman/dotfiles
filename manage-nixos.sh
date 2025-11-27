@@ -348,10 +348,10 @@ interactive_mode() {
         
         case "$choice" in
             1)
-                cmd_build && cmd_switch
+                cmd_switch
                 ;;
             2)
-                cmd_build && cmd_boot
+                cmd_boot
                 ;;
             3)
                 cmd_build
