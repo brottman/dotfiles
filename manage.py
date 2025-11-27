@@ -155,6 +155,7 @@ ACTIONS = {
         ("smart-status", "SMART Status", "Check disk health via SMART", False, False),
     ],
     "vm": [
+        ("vm-create", "Create VM", "Create a new virtual machine (interactive wizard)", False, False),
         ("vm-list", "List VMs", "Show all virtual machines and their status", False, False),
         ("vm-list-all", "List All VMs", "Show all VMs including inactive ones", False, False),
         ("vm-info", "VM Info", "Show detailed information about a VM", False, False),
@@ -938,6 +939,8 @@ class ManageApp(App):
             self._run_smart_status(output_log)
         
         # Virtual Machine commands
+        elif action_id == "vm-create":
+            self._vm_create_helper(output_log)
         elif action_id == "vm-list":
             # Check if virsh is available first
             if not shutil.which("virsh"):
@@ -1519,6 +1522,27 @@ class ManageApp(App):
             output_log.write_line(f"  Error: {e}\n")
         
         output_log.write_line("\n" + "-" * 60 + "\n")
+        spinner = self.query_one("#spinner", Spinner)
+        spinner.stop_success()
+    
+    def _vm_create_helper(self, output_log: OutputLog) -> None:
+        """Create a new VM - shows instructions for VM creation."""
+        output_log.write_line("VM Creation\n")
+        output_log.write_line("=" * 60 + "\n\n")
+        output_log.write_line("VM creation functionality is available.\n\n")
+        output_log.write_line("To create a VM, you'll need to:\n\n")
+        output_log.write_line("1. Use virt-install or virt-manager directly:\n")
+        output_log.write_line("   virt-install --name myvm --memory 4096 --vcpus 2 \\\n")
+        output_log.write_line("     --disk size=20,format=qcow2 --os-variant generic\n\n")
+        output_log.write_line("2. Or use virt-manager GUI:\n")
+        output_log.write_line("   virt-manager\n\n")
+        output_log.write_line("For NixOS VMs, you can manually:\n")
+        output_log.write_line("  • Create configuration.nix and hardware-configuration.nix\n")
+        output_log.write_line("  • Add the VM to flake.nix\n")
+        output_log.write_line("  • Use nixos-generate-config to generate initial config\n\n")
+        output_log.write_line("=" * 60 + "\n")
+        output_log.write_line("\nNote: Full VM creation wizard coming soon.\n")
+        
         spinner = self.query_one("#spinner", Spinner)
         spinner.stop_success()
 
