@@ -635,7 +635,12 @@ class ManageApp(App):
             spinner.stop()
             output_log.clear()
             output_log.write_line(f"⚠️  WARNING: '{title}' is a dangerous operation!\n")
-            output_log.write_line("Press Enter again to confirm, or select a different action.\n")
+            output_log.write_line("This command has been blocked for safety.\n")
+            output_log.write_line("To execute dangerous commands, run them directly from the terminal.\n")
+            output_log.write_line("Command that would have been run:\n")
+            # Show what command would have been executed
+            if requires_machine:
+                output_log.write_line(f"  Machine: {self.current_machine}\n")
             return
         
         spinner.start()
@@ -709,7 +714,7 @@ class ManageApp(App):
         elif action_id == "docker-volumes":
             self._run_streaming(["docker", "volume", "ls"], output_log)
         elif action_id == "docker-restart-all":
-            self._run_streaming(["sh", "-c", "docker restart $(docker ps -q)"], output_log)
+            self._run_streaming(["sh", "-c", "docker restart $(docker ps -q)"], output_log, shell=False)
         
         # System commands
         elif action_id == "sys-info":
@@ -813,7 +818,7 @@ class ManageApp(App):
         elif action_id == "disk-io":
             self._run_streaming(["iostat", "-x", "1", "1"], output_log)
         elif action_id == "disk-largest":
-            self._run_streaming(["sudo", "du", "-ah", "/", "--max-depth=3", "2>/dev/null", "|", "sort", "-rh", "|", "head", "-20"], output_log, shell=True)
+            self._run_streaming(["sudo", "sh", "-c", "du -ah / --max-depth=3 2>/dev/null | sort -rh | head -20"], output_log, shell=False)
         elif action_id == "disk-inodes":
             self._run_streaming(["df", "-i"], output_log)
         elif action_id == "zfs-status":
@@ -880,8 +885,12 @@ class ManageApp(App):
         """Run a command and stream output to the log."""
         def run_in_thread():
             try:
+                # Log the command being executed
+                cmd_str = " ".join(cmd) if isinstance(cmd, list) else str(cmd)
+                self.call_from_thread(output_log.write_line, f"Running: {cmd_str}\n\n")
+                
                 if shell:
-                    cmd_str = " ".join(cmd)
+                    cmd_str = " ".join(cmd) if isinstance(cmd, list) else str(cmd)
                     process = subprocess.Popen(
                         cmd_str,
                         shell=True,
@@ -901,7 +910,10 @@ class ManageApp(App):
                         bufsize=1
                     )
                 
+                # Read output line by line
+                output_received = False
                 for line in process.stdout:
+                    output_received = True
                     self.call_from_thread(output_log.write_line, line)
                 
                 process.wait()
@@ -912,18 +924,27 @@ class ManageApp(App):
                 
                 self.call_from_thread(output_log.write_line, "\n" + "-" * 60 + "\n")
                 if process.returncode == 0:
-                    self.call_from_thread(output_log.write_line, "✓ Command completed successfully\n")
+                    if not output_received:
+                        self.call_from_thread(output_log.write_line, "Command completed (no output)\n")
+                    else:
+                        self.call_from_thread(output_log.write_line, "✓ Command completed successfully\n")
                 else:
                     self.call_from_thread(output_log.write_line, f"✗ Command failed with exit code {process.returncode}\n")
+                    if not output_received:
+                        self.call_from_thread(output_log.write_line, "No output was produced. The command may have failed silently.\n")
                 
             except FileNotFoundError:
                 spinner = self.query_one("#spinner", Spinner)
                 self.call_from_thread(spinner.stop)
-                self.call_from_thread(output_log.write_line, f"Error: Command not found: {cmd[0]}\n")
+                cmd_name = cmd[0] if isinstance(cmd, list) and len(cmd) > 0 else str(cmd)
+                self.call_from_thread(output_log.write_line, f"✗ Error: Command not found: {cmd_name}\n")
+                self.call_from_thread(output_log.write_line, "Make sure the command is installed and available in PATH.\n")
             except Exception as e:
                 spinner = self.query_one("#spinner", Spinner)
                 self.call_from_thread(spinner.stop)
-                self.call_from_thread(output_log.write_line, f"Error: {e}\n")
+                self.call_from_thread(output_log.write_line, f"✗ Error executing command: {e}\n")
+                import traceback
+                self.call_from_thread(output_log.write_line, f"Traceback:\n{traceback.format_exc()}\n")
         
         thread = threading.Thread(target=run_in_thread, daemon=True)
         thread.start()
