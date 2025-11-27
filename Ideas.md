@@ -49,33 +49,3 @@ conda activate skylight
 conda activate stoxai
 
 
-
-What is the difference between these 2 commands:
-
-sudo nix-collect-garbage -d
-sudo nix store gc
-
-Answer:
-
-1. `sudo nix-collect-garbage -d`:
-   - High-level NixOS-specific command
-   - Does TWO things:
-     a) Deletes old system generations (boot entries) - the `-d` flag means "delete old generations"
-     b) Runs garbage collection on the Nix store to remove unreferenced paths
-   - More user-friendly, does everything in one command
-   - Part of the older NixOS tooling
-
-2. `sudo nix store gc`:
-   - Lower-level command that ONLY does garbage collection
-   - Removes unreferenced store paths from /nix/store
-   - Does NOT delete old system generations
-   - More granular control - just cleans the store
-   - Part of the newer `nix` command interface (flakes era)
-   - With `--debug` flag, shows verbose output including "got additional root" messages
-
-Key Difference:
-- `nix-collect-garbage -d` = delete old generations + garbage collect store
-- `nix store gc` = only garbage collect store (no generation deletion)
-
-In the script, running both is somewhat redundant since `nix-collect-garbage -d` already does GC.
-The second command might catch additional paths, but it's usually unnecessary.

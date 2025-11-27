@@ -6,13 +6,6 @@
   services.samba = {
     enable = true;
     openFirewall = false; # We manage firewall manually
-    # Samba users with passwords from sops
-    users = [
-      {
-        name = "brian";
-        passwordFile = config.sops.secrets.samba_brian_password.path;
-      }
-    ];
     settings = {
       global = {
         workgroup = "WORKGROUP";
@@ -89,6 +82,29 @@
     enable = true;
     nssmdns4 = true;
     openFirewall = false; # We manage firewall manually
+  };
+
+  # Set Samba password from SOPS secret
+  systemd.services.samba-set-password = {
+    description = "Set Samba password for brian user";
+    after = [ "samba.service" "sops-nix.service" ];
+    wantedBy = [ "multi-user.target" ];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+    };
+    script = ''
+      PASSWORD=$(cat ${config.sops.secrets.samba_brian_password.path})
+      
+      # Check if user already exists in Samba
+      if ! ${pkgs.samba}/bin/pdbedit -L 2>/dev/null | grep -q "^brian:"; then
+        # Add user and set password from file
+        printf "%s\n%s\n" "$PASSWORD" "$PASSWORD" | ${pkgs.samba}/bin/smbpasswd -a -s brian
+      else
+        # Update password if user exists
+        printf "%s\n%s\n" "$PASSWORD" "$PASSWORD" | ${pkgs.samba}/bin/smbpasswd -s brian
+      fi
+    '';
   };
 
 }
