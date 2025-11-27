@@ -11,6 +11,10 @@ import os
 import shutil
 import threading
 import textwrap
+import pty
+import select
+import fcntl
+import time
 from pathlib import Path
 from typing import Optional, List, Tuple
 from dataclasses import dataclass
@@ -47,6 +51,22 @@ except ImportError:
     sys.exit(1)
 
 
+class ActionItem(Static):
+    """A clickable action item."""
+    
+    def __init__(self, action_id: str, title: str, desc: str, index: int, **kwargs):
+        super().__init__(**kwargs)
+        self.action_id = action_id
+        self.title = title
+        self.desc = desc
+        self.index = index
+    
+    def on_click(self, event: events.Click) -> None:
+        """Handle click on this action item."""
+        # Send message to parent ActionList
+        self.post_message(ActionList.ActionSelected(self.action_id))
+
+
 class ActionList(Static):
     """Widget for displaying and selecting actions."""
     
@@ -79,23 +99,33 @@ class ActionList(Static):
         yield Static("[bold cyan]Actions[/bold cyan]", classes="section-title")
         for idx, (action_id, title, desc) in enumerate(self.ACTIONS):
             prefix = "❯ " if idx == self.selected_index else "  "
-            yield Static(f"{prefix}[bold]{title}[/bold]\n[dim]{desc}[/dim]", 
-                       classes="action-item", id=f"action-{idx}")
+            yield ActionItem(
+                action_id, title, desc, idx,
+                content=f"{prefix}[bold]{title}[/bold]",
+                classes="action-item", 
+                id=f"action-{idx}"
+            )
+        
+        # Add descriptions section
+        yield Static("[bold cyan]Descriptions[/bold cyan]", classes="section-title")
+        descriptions_text = "\n".join([f"[bold]{title}:[/bold] {desc}" 
+                                      for _, title, desc in self.ACTIONS])
+        yield Static(descriptions_text, classes="descriptions")
     
     def on_mount(self) -> None:
         self._highlight_selected()
     
     def _highlight_selected(self) -> None:
         for idx, (action_id, title, desc) in enumerate(self.ACTIONS):
-            item = self.query_one(f"#action-{idx}", Static)
+            item = self.query_one(f"#action-{idx}", ActionItem)
             if idx == self.selected_index:
                 item.styles.bg = "cyan"
                 item.styles.color = "white"
-                item.update(f"❯ [bold]{title}[/bold]\n[dim]{desc}[/dim]")
+                item.update(f"❯ [bold]{title}[/bold]")
             else:
                 item.styles.bg = "transparent"
                 item.styles.color = "white"
-                item.update(f"  {title}\n[dim]{desc}[/dim]")
+                item.update(f"  {title}")
     
     def select_next(self) -> None:
         if self.selected_index < len(self.ACTIONS) - 1:
@@ -109,11 +139,48 @@ class ActionList(Static):
     def get_selected(self) -> Tuple[str, str]:
         action_id, title, desc = self.ACTIONS[self.selected_index]
         return action_id, title
+    
+    @on(ActionSelected)
+    def on_action_selected(self, event: ActionSelected) -> None:
+        """Handle action selection from click or keyboard."""
+        # Find the index of the selected action
+        for idx, (action_id, _, _) in enumerate(self.ACTIONS):
+            if action_id == event.action:
+                self.selected_index = idx
+                self._highlight_selected()
+                break
 
 
 class OutputLog(Log):
     """Widget for displaying command output."""
-    pass
+    
+    class OutputUpdate(Message):
+        """Message to update output from background thread."""
+        def __init__(self, text: str) -> None:
+            self.text = text
+            super().__init__()
+    
+    def _strip_markup(self, text: str) -> str:
+        """Strip Rich markup tags from text."""
+        import re
+        # Remove Rich markup tags like [bold], [cyan], [/bold], etc.
+        return re.sub(r'\[/?[^\]]+\]', '', text)
+    
+    @on(OutputUpdate)
+    def on_output_update(self, event: OutputUpdate) -> None:
+        """Handle output update message."""
+        # Strip markup since Textual's Log doesn't render it properly
+        plain_text = self._strip_markup(event.text)
+        self.write(plain_text)
+        # Force immediate refresh and scroll to bottom
+        self.refresh()
+        self.scroll_end(animate=False)
+    
+    def write(self, content) -> None:
+        """Override write to strip Rich markup."""
+        if isinstance(content, str):
+            content = self._strip_markup(content)
+        super().write(content)
 
 
 class NixOSManagerApp(App):
@@ -139,7 +206,16 @@ class NixOSManagerApp(App):
     .action-item {
         padding: 1;
         margin: 0 1;
-        height: 4;
+        height: 3;
+    }
+    
+    .action-item:hover {
+        background: $primary 20%;
+    }
+    
+    .descriptions {
+        padding: 1;
+        margin: 1;
     }
     
     #action-panel {
@@ -231,11 +307,26 @@ class NixOSManagerApp(App):
         # Execute the action
         self.execute_command(action_id, machine, title)
     
+    @on(ActionList.ActionSelected)
+    def on_action_selected(self, event: ActionList.ActionSelected) -> None:
+        """Handle action selection from mouse click."""
+        action_id = event.action
+        # Find the action title
+        action_list = self.query_one("#action-list", ActionList)
+        for action_tuple in ActionList.ACTIONS:
+            if action_tuple[0] == action_id:
+                title = action_tuple[1]
+                # Use current machine for actions that need it
+                machine = self.current_machine if action_id in ["switch", "boot", "build", "dry-run", "status"] else None
+                # Execute the action
+                self.execute_command(action_id, machine, title)
+                break
+    
     def execute_command(self, action_id: str, machine: Optional[str], title: str) -> None:
         """Execute a command and display output."""
         output_log = self.query_one("#output-log", OutputLog)
         output_log.clear()
-        output_log.write(f"[bold cyan]Executing: {title}[/bold cyan]")
+        output_log.write(f"[bold cyan]Executing: {title}[/bold cyan]\n")
         
         # Check if machine is needed but not detected
         if action_id in ["switch", "boot", "build", "dry-run", "status"]:
@@ -293,53 +384,233 @@ class NixOSManagerApp(App):
     
     def _run_command_streaming(self, cmd: List[str], output_log: OutputLog, 
                                sudo: bool = False) -> int:
-        """Run a command and stream output live to the output log."""
-        if sudo:
-            cmd = ["sudo"] + cmd
+        """Run a command and stream output live to the output log using pty for unbuffered output."""
+        # Try to use 'script' command which creates a proper terminal session
+        # This works better than pty for some commands that buffer heavily
+        use_script = False
+        try:
+            subprocess.run(["which", "script"], capture_output=True, check=True)
+            use_script = True
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            pass
+        
+        # Set environment
+        env = os.environ.copy()
+        env['PYTHONUNBUFFERED'] = '1'
+        
+        if use_script:
+            # Use 'script' to create a terminal session - this forces unbuffered output
+            # script -qefc runs command in a terminal and outputs to stdout
+            script_cmd = " ".join(cmd)
+            if sudo:
+                full_cmd = ["sudo", "script", "-qefc", script_cmd, "/dev/null"]
+            else:
+                full_cmd = ["script", "-qefc", script_cmd, "/dev/null"]
+            cmd = full_cmd
+            use_pty = False  # script creates its own terminal
+        else:
+            # Try stdbuf as fallback
+            try:
+                subprocess.run(["which", "stdbuf"], capture_output=True, check=True)
+                if sudo:
+                    cmd = ["sudo", "stdbuf", "-oL", "-eL"] + cmd
+                else:
+                    cmd = ["stdbuf", "-oL", "-eL"] + cmd
+            except (subprocess.CalledProcessError, FileNotFoundError):
+                if sudo:
+                    cmd = ["sudo"] + cmd
+            use_pty = True
         
         try:
-            process = subprocess.Popen(
-                cmd,
-                cwd=self.flake_path,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                bufsize=1,  # Line buffered
-                universal_newlines=True
-            )
+            if use_pty:
+                # Use pty to create a pseudo-terminal
+                master_fd, slave_fd = pty.openpty()
+                
+                # Start the process with pty
+                process = subprocess.Popen(
+                    cmd,
+                    cwd=self.flake_path,
+                    stdout=slave_fd,
+                    stderr=slave_fd,
+                    stdin=subprocess.DEVNULL,
+                    env=env,
+                    start_new_session=True
+                )
+                os.close(slave_fd)
+                read_fd = master_fd
+            else:
+                # Use script - read from stdout directly
+                process = subprocess.Popen(
+                    cmd,
+                    cwd=self.flake_path,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    stdin=subprocess.DEVNULL,
+                    env=env,
+                    start_new_session=True,
+                    bufsize=0  # Unbuffered
+                )
+                read_fd = process.stdout.fileno()
+                master_fd = None
             
-            # Read and write output line by line in a thread-safe way
+            # Read and write output in real-time
             def read_output():
                 try:
-                    # Use a reasonable width for wrapping (accounting for panel width ~70% of screen)
-                    # Assuming typical terminal width, 70% would be around 80-100 chars
-                    wrap_width = 100
+                    wrap_width = 70
+                    line_buffer = ""
                     
-                    for line in iter(process.stdout.readline, ''):
-                        if line:
-                            line = line.rstrip()
-                            # Wrap long lines to prevent horizontal scrolling
-                            if len(line) > wrap_width:
-                                wrapped_lines = textwrap.wrap(line, width=wrap_width, break_long_words=True, break_on_hyphens=False)
-                                for wrapped_line in wrapped_lines:
-                                    self.call_from_thread(output_log.write, wrapped_line)
-                            else:
-                                # Use call_from_thread to safely update UI from background thread
-                                self.call_from_thread(output_log.write, line)
-                except Exception:
-                    pass
+                    # Set read fd to non-blocking
+                    if use_pty:
+                        flags = fcntl.fcntl(read_fd, fcntl.F_GETFL)
+                        fcntl.fcntl(read_fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
+                    else:
+                        # For regular pipe, set to non-blocking
+                        flags = fcntl.fcntl(read_fd, fcntl.F_GETFL)
+                        fcntl.fcntl(read_fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
+                    
+                    while True:
+                        try:
+                            # Read available data (non-blocking)
+                            chunk = os.read(read_fd, 512)
+                            if not chunk:
+                                # Check if process is done
+                                if process.poll() is not None:
+                                    # Write any remaining buffer
+                                    if line_buffer:
+                                        line = line_buffer.rstrip('\r\n')
+                                        if line:
+                                            if len(line) > wrap_width:
+                                                wrapped_lines = textwrap.wrap(line, width=wrap_width, break_long_words=True, break_on_hyphens=False, replace_whitespace=False)
+                                                for wrapped_line in wrapped_lines:
+                                                    self.call_from_thread(output_log.write, wrapped_line + "\n")
+                                                self.call_from_thread(output_log.refresh)
+                                                self.call_from_thread(output_log.scroll_end, animate=False)
+                                            else:
+                                                self.call_from_thread(output_log.write, line + "\n")
+                                                self.call_from_thread(output_log.refresh)
+                                                self.call_from_thread(output_log.scroll_end, animate=False)
+                                    break
+                                # No data available, small sleep to avoid busy waiting
+                                time.sleep(0.01)
+                                continue
+                            
+                            # Decode chunk and process
+                            text = chunk.decode('utf-8', errors='replace')
+                            line_buffer += text
+                            
+                            # Process complete lines immediately
+                            while '\n' in line_buffer:
+                                line, line_buffer = line_buffer.split('\n', 1)
+                                line = line.rstrip('\r')
+                                if line:
+                                    # Wrap long lines and write immediately
+                                    if len(line) > wrap_width:
+                                        wrapped_lines = textwrap.wrap(line, width=wrap_width, break_long_words=True, break_on_hyphens=False, replace_whitespace=False)
+                                        for wrapped_line in wrapped_lines:
+                                            self.call_from_thread(output_log.write, wrapped_line + "\n")
+                                        # Refresh once after all wrapped lines
+                                        self.call_from_thread(output_log.refresh)
+                                        self.call_from_thread(output_log.scroll_end, animate=False)
+                                    else:
+                                        self.call_from_thread(output_log.write, line + "\n")
+                                        self.call_from_thread(output_log.refresh)
+                                        self.call_from_thread(output_log.scroll_end, animate=False)
+                        except BlockingIOError:
+                            # No data available right now
+                            if process.poll() is not None:
+                                # Process done, check for final output
+                                try:
+                                    final_chunk = os.read(read_fd, 4096)
+                                    if final_chunk:
+                                        text = final_chunk.decode('utf-8', errors='replace')
+                                        line_buffer += text
+                                        if '\n' in line_buffer:
+                                            line, line_buffer = line_buffer.split('\n', 1)
+                                            line = line.rstrip('\r')
+                                            if line:
+                                                if len(line) > wrap_width:
+                                                    wrapped_lines = textwrap.wrap(line, width=wrap_width, break_long_words=True, break_on_hyphens=False, replace_whitespace=False)
+                                                    for wrapped_line in wrapped_lines:
+                                                        self.call_from_thread(output_log.write, wrapped_line + "\n")
+                                                    self.call_from_thread(output_log.refresh)
+                                                    self.call_from_thread(output_log.scroll_end, animate=False)
+                                                else:
+                                                    self.call_from_thread(output_log.write, line + "\n")
+                                                    self.call_from_thread(output_log.refresh)
+                                                    self.call_from_thread(output_log.scroll_end, animate=False)
+                                except (OSError, BlockingIOError):
+                                    pass
+                                
+                                # Write any remaining buffer
+                                if line_buffer:
+                                    line = line_buffer.rstrip('\r\n')
+                                    if line:
+                                        if len(line) > wrap_width:
+                                            wrapped_lines = textwrap.wrap(line, width=wrap_width, break_long_words=True, break_on_hyphens=False, replace_whitespace=False)
+                                            for wrapped_line in wrapped_lines:
+                                                self.call_from_thread(output_log.write, wrapped_line + "\n")
+                                            self.call_from_thread(output_log.refresh)
+                                            self.call_from_thread(output_log.scroll_end, animate=False)
+                                        else:
+                                            self.call_from_thread(output_log.write, line + "\n")
+                                            self.call_from_thread(output_log.refresh)
+                                            self.call_from_thread(output_log.scroll_end, animate=False)
+                                break
+                            time.sleep(0.01)  # Small sleep to avoid busy waiting
+                        except OSError:
+                            # File descriptor closed or error
+                            break
+                except Exception as e:
+                    try:
+                        self.call_from_thread(output_log.write, f"[red]Error reading output: {e}[/red]\n")
+                        self.call_from_thread(output_log.refresh)
+                    except:
+                        pass
+                finally:
+                    if use_pty:
+                        os.close(read_fd)
+                    # For regular pipe, it will be closed when process ends
+            
+            # Store process reference for polling
+            self._current_process = process
+            self._current_process_exit_code = None
             
             # Start reading in a background thread
             reader_thread = threading.Thread(target=read_output, daemon=True)
             reader_thread.start()
             
-            # Wait for process to complete
-            process.wait()
-            reader_thread.join(timeout=0.1)  # Brief wait for any remaining output
+            # Use set_timer to poll process status without blocking
+            # This allows the event loop to process queued call_from_thread updates
+            def check_process():
+                exit_code = process.poll()
+                if exit_code is not None:
+                    self._current_process_exit_code = exit_code
+                    reader_thread.join(timeout=0.5)
+                    # Add completion indicator (we're in main thread, so call directly)
+                    output_log.write("\n" + "─" * 70 + "\n")
+                    if exit_code == 0:
+                        output_log.write("Command completed successfully\n")
+                    else:
+                        output_log.write(f"Command failed with exit code {exit_code}\n")
+                    output_log.write("─" * 70 + "\n")
+                    output_log.refresh()
+                    output_log.scroll_end(animate=False)
+                else:
+                    # Check again in 50ms - this is non-blocking!
+                    self.set_timer(0.05, check_process)
             
-            return process.returncode
+            # Start polling (non-blocking)
+            self.set_timer(0.05, check_process)
+            
+            # Return immediately - the polling will set exit code
+            # For now return 0, but the actual code will be in self._current_process_exit_code
+            return 0
         except Exception as e:
-            self.call_from_thread(output_log.write, f"[bold red]Error: {e}[/bold red]\n")
+            try:
+                self.call_from_thread(output_log.write, f"[bold red]Error: {e}[/bold red]\n")
+                self.call_from_thread(output_log.refresh)
+            except:
+                pass
             return 1
     
     def _cmd_switch(self, machine: str, output_log: OutputLog) -> None:
@@ -496,13 +767,24 @@ class NixOSManagerApp(App):
     def _cmd_pull(self, output_log: OutputLog) -> None:
         """Git pull and rerun."""
         output_log.write("[bold]Pulling latest changes from git...[/bold]\n\n")
-        exit_code = self._run_command_streaming(["git", "pull"], output_log, sudo=False)
-        output_log.write("\n")
-        if exit_code == 0:
-            output_log.write("[bold green]✓ Git pull completed successfully![/bold green]\n")
-            output_log.write("[yellow]Please restart the TUI to use the latest changes.[/yellow]\n")
-        else:
-            output_log.write("[bold red]✗ Git pull failed[/bold red]\n")
+        self._run_command_streaming(["git", "pull"], output_log, sudo=False)
+        
+        # Wait for the actual exit code
+        def check_exit_code():
+            if self._current_process_exit_code is not None:
+                exit_code = self._current_process_exit_code
+                output_log.write("\n")
+                if exit_code == 0:
+                    output_log.write("[bold green]✓ Git pull completed successfully![/bold green]\n")
+                    output_log.write("[yellow]Please restart the TUI to use the latest changes.[/yellow]\n")
+                else:
+                    output_log.write("[bold red]✗ Git pull failed[/bold red]\n")
+            else:
+                # Check again in 100ms
+                self.set_timer(0.1, check_exit_code)
+        
+        # Start checking for exit code
+        self.set_timer(0.1, check_exit_code)
     
     def _cmd_list_machines(self, output_log: OutputLog) -> None:
         """List all available machines."""
