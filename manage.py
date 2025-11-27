@@ -264,16 +264,26 @@ class ActionList(Static, can_focus=True):
                 pass
     
     def select_next(self) -> None:
+        if len(self.actions) == 0:
+            return
         if self.selected_index < len(self.actions) - 1:
             self.selected_index += 1
-            self._highlight_selected()
-            self._scroll_to_selected()
+        else:
+            # Wrap around to first item
+            self.selected_index = 0
+        self._highlight_selected()
+        self._scroll_to_selected()
     
     def select_previous(self) -> None:
+        if len(self.actions) == 0:
+            return
         if self.selected_index > 0:
             self.selected_index -= 1
-            self._highlight_selected()
-            self._scroll_to_selected()
+        else:
+            # Wrap around to last item
+            self.selected_index = len(self.actions) - 1
+        self._highlight_selected()
+        self._scroll_to_selected()
     
     def _scroll_to_selected(self) -> None:
         try:
@@ -437,11 +447,26 @@ class ManageApp(App):
     #tabs-header {
         height: auto;
         layout: horizontal;
+        border: solid $primary;
+        border-bottom: solid $border;
+        padding: 0 1;
     }
     
-    #output-panel TabbedContent {
+    TabbedContent {
         width: 1fr;
         height: auto;
+    }
+    
+    Tab {
+        border-bottom: none !important;
+    }
+    
+    Tab.--active {
+        border-bottom: none !important;
+    }
+    
+    TabList {
+        border-bottom: none !important;
     }
     
     TabPane {
@@ -522,7 +547,16 @@ class ManageApp(App):
                 id="machine-selector"
             )
             
-            # Horizontal layout: actions on left, tabs/output on right
+            # Tabs pane above all other panes
+            with Horizontal(id="tabs-header"):
+                with TabbedContent(id="tabs"):
+                    for tab_id, tab_name, tab_icon in TABS:
+                        with TabPane(f"{tab_icon} {tab_name}", id=f"tab-{tab_id}"):
+                            # Empty pane - tabs are just for selection
+                            yield Static("")
+                yield Spinner(id="spinner")
+            
+            # Horizontal layout: actions on left, output on right
             with Horizontal(id="content-area"):
                 # Left side: Action panel (changes based on tab selection)
                 with Vertical(id="action-panel"):
@@ -534,18 +568,9 @@ class ManageApp(App):
                         id="description-box"
                     )
                 
-                # Right side: Tabs and output panel
+                # Right side: Output panel
                 with Vertical(id="output-panel"):
-                    # Top row: Tabs on left, spinner on right
-                    with Horizontal(id="tabs-header"):
-                        with TabbedContent(id="tabs"):
-                            for tab_id, tab_name, tab_icon in TABS:
-                                with TabPane(f"{tab_icon} {tab_name}", id=f"tab-{tab_id}"):
-                                    # Empty pane - tabs are just for selection
-                                    yield Static("")
-                        yield Spinner(id="spinner")
-                    
-                    # Output below tabs
+                    # Output content
                     with Vertical(id="output-content"):
                         yield OutputLog(id="output-log", highlight=True)
         
