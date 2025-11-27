@@ -312,6 +312,36 @@ class ActionList(Static):
                     break
 
 
+class Spinner(Static):
+    """A simple spinner widget for showing command execution."""
+    
+    SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+    
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self._spinning = False
+        self._frame_index = 0
+    
+    def start(self) -> None:
+        """Start the spinner animation."""
+        self._spinning = True
+        self._frame_index = 0
+        self._update()
+    
+    def stop(self) -> None:
+        """Stop the spinner animation."""
+        self._spinning = False
+        self.update("")
+    
+    def _update(self) -> None:
+        """Update the spinner frame."""
+        if self._spinning:
+            frame = self.SPINNER_FRAMES[self._frame_index % len(self.SPINNER_FRAMES)]
+            self.update(f"[cyan]{frame}[/cyan] Executing...")
+            self._frame_index += 1
+            self.set_timer(0.1, self._update)
+
+
 class OutputLog(Log):
     """Widget for displaying command output."""
     
@@ -403,6 +433,12 @@ class ManageApp(App):
         padding: 0;
     }
     
+    #spinner {
+        height: 1;
+        text-align: left;
+        padding: 0 1;
+    }
+    
     #output-log {
         height: 1fr;
         border: none;
@@ -480,7 +516,7 @@ class ManageApp(App):
                                 )
                             
                             with Vertical(id="output-panel"):
-                                yield Static("[bold cyan]Output[/bold cyan]", classes="section-title")
+                                yield Spinner(id="spinner")
                                 yield OutputLog(id="output-log", highlight=True)
         
         yield Footer()
@@ -591,15 +627,18 @@ class ManageApp(App):
     def _execute_action(self, action_id: str, title: str, dangerous: bool, requires_machine: bool) -> None:
         """Execute an action."""
         output_log = self.query_one("#output-log", OutputLog)
+        spinner = self.query_one("#spinner", Spinner)
         
         # Confirmation for dangerous actions
         if dangerous:
             # For now, just warn - in a full implementation you'd use a modal
+            spinner.stop()
             output_log.clear()
             output_log.write_line(f"⚠️  WARNING: '{title}' is a dangerous operation!\n")
             output_log.write_line("Press Enter again to confirm, or select a different action.\n")
             return
         
+        spinner.start()
         output_log.clear()
         output_log.write_line(f"Executing: {title}\n")
         
@@ -793,20 +832,36 @@ class ManageApp(App):
             self._run_streaming(["virsh", "list", "--all"], output_log)
         elif action_id == "vm-info":
             output_log.write_line("Please specify a VM name. Use 'vm-list' to see available VMs.\n")
+            spinner = self.query_one("#spinner", Spinner)
+            spinner.stop()
         elif action_id == "vm-start":
             output_log.write_line("Please specify a VM name. Use 'vm-list-all' to see available VMs.\n")
+            spinner = self.query_one("#spinner", Spinner)
+            spinner.stop()
         elif action_id == "vm-shutdown":
             output_log.write_line("Please specify a VM name. Use 'vm-list' to see running VMs.\n")
+            spinner = self.query_one("#spinner", Spinner)
+            spinner.stop()
         elif action_id == "vm-reboot":
             output_log.write_line("Please specify a VM name. Use 'vm-list' to see running VMs.\n")
+            spinner = self.query_one("#spinner", Spinner)
+            spinner.stop()
         elif action_id == "vm-force-stop":
             output_log.write_line("Please specify a VM name. Use 'vm-list' to see running VMs.\n")
+            spinner = self.query_one("#spinner", Spinner)
+            spinner.stop()
         elif action_id == "vm-suspend":
             output_log.write_line("Please specify a VM name. Use 'vm-list' to see running VMs.\n")
+            spinner = self.query_one("#spinner", Spinner)
+            spinner.stop()
         elif action_id == "vm-resume":
             output_log.write_line("Please specify a VM name. Use 'vm-list-all' to see available VMs.\n")
+            spinner = self.query_one("#spinner", Spinner)
+            spinner.stop()
         elif action_id == "vm-console":
             output_log.write_line("Please specify a VM name. Use 'vm-list' to see running VMs.\n")
+            spinner = self.query_one("#spinner", Spinner)
+            spinner.stop()
         elif action_id == "vm-stats":
             self._run_vm_stats(output_log)
         elif action_id == "vm-networks":
@@ -818,6 +873,8 @@ class ManageApp(App):
         
         else:
             output_log.write_line(f"Unknown action: {action_id}\n")
+            spinner = self.query_one("#spinner", Spinner)
+            spinner.stop()
     
     def _run_streaming(self, cmd: List[str], output_log: OutputLog, shell: bool = False) -> None:
         """Run a command and stream output to the log."""
@@ -849,6 +906,10 @@ class ManageApp(App):
                 
                 process.wait()
                 
+                # Stop spinner
+                spinner = self.query_one("#spinner", Spinner)
+                self.call_from_thread(spinner.stop)
+                
                 self.call_from_thread(output_log.write_line, "\n" + "-" * 60 + "\n")
                 if process.returncode == 0:
                     self.call_from_thread(output_log.write_line, "✓ Command completed successfully\n")
@@ -856,8 +917,12 @@ class ManageApp(App):
                     self.call_from_thread(output_log.write_line, f"✗ Command failed with exit code {process.returncode}\n")
                 
             except FileNotFoundError:
+                spinner = self.query_one("#spinner", Spinner)
+                self.call_from_thread(spinner.stop)
                 self.call_from_thread(output_log.write_line, f"Error: Command not found: {cmd[0]}\n")
             except Exception as e:
+                spinner = self.query_one("#spinner", Spinner)
+                self.call_from_thread(spinner.stop)
                 self.call_from_thread(output_log.write_line, f"Error: {e}\n")
         
         thread = threading.Thread(target=run_in_thread, daemon=True)
@@ -885,6 +950,8 @@ class ManageApp(App):
             
             self.call_from_thread(output_log.write_line, "\n" + "-" * 60 + "\n")
             self.call_from_thread(output_log.write_line, "All machines processed.\n")
+            spinner = self.query_one("#spinner", Spinner)
+            self.call_from_thread(spinner.stop)
         
         thread = threading.Thread(target=run_in_thread, daemon=True)
         thread.start()
@@ -896,6 +963,8 @@ class ManageApp(App):
             status = "(Current)" if machine == self.current_machine else "(Available)"
             output_log.write_line(f"  💻 {machine} {status}\n")
         output_log.write_line("\n" + "-" * 60 + "\n")
+        spinner = self.query_one("#spinner", Spinner)
+        spinner.stop()
     
     def _run_health_check(self, output_log: OutputLog) -> None:
         """Run system health check."""
@@ -925,6 +994,8 @@ class ManageApp(App):
             
             output_log.write_line("\n" + "-" * 60 + "\n")
             output_log.write_line("✓ Health check completed\n")
+            spinner = self.query_one("#spinner", Spinner)
+            spinner.stop()
     
     def _run_system_info(self, output_log: OutputLog) -> None:
         """Display system information."""
@@ -971,6 +1042,8 @@ class ManageApp(App):
             pass
         
         output_log.write_line("\n" + "-" * 60 + "\n")
+        spinner = self.query_one("#spinner", Spinner)
+        spinner.stop()
     
     def _run_ping_test(self, output_log: OutputLog) -> None:
         """Run ping tests to common endpoints."""
@@ -1002,6 +1075,8 @@ class ManageApp(App):
                 output_log.write_line(f"  ✗ {name} ({host}): error\n")
         
         output_log.write_line("\n" + "-" * 60 + "\n")
+        spinner = self.query_one("#spinner", Spinner)
+        spinner.stop()
     
     def _run_dns_test(self, output_log: OutputLog) -> None:
         """Run DNS resolution tests."""
@@ -1027,6 +1102,8 @@ class ManageApp(App):
                 output_log.write_line(f"  ✗ {domain}: error\n")
         
         output_log.write_line("\n" + "-" * 60 + "\n")
+        spinner = self.query_one("#spinner", Spinner)
+        spinner.stop()
     
     def _run_smart_status(self, output_log: OutputLog) -> None:
         """Check SMART status of drives."""
@@ -1107,6 +1184,8 @@ class ManageApp(App):
             output_log.write_line(f"  Error: {e}\n")
         
         output_log.write_line("\n" + "-" * 60 + "\n")
+        spinner = self.query_one("#spinner", Spinner)
+        spinner.stop()
 
 
 # =============================================================================
