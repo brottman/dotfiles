@@ -1,6 +1,1 @@
-Executing: Git Pull
-Pulling latest changes from git...
-
-
-✗ Git pull failed
-Already up to date.
+I want to significantly expand the functionality of the manage script by adding tabs across the top for system, nixos, docker, git, virtual machines, network, services, storage

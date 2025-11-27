@@ -412,7 +412,7 @@ main() {
     # If no arguments, try to launch TUI, fallback to interactive mode
     if [[ $# -eq 0 ]]; then
         # Check if TUI script exists and Python with rich is available
-        local tui_script="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/manage-nixos-tui.py"
+        local tui_script="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/manage.py"
         if [[ -f "$tui_script" ]] && command -v python3 &> /dev/null; then
             # Try to import rich to check if it's available
             if python3 -c "import rich" 2>/dev/null; then
