@@ -14,21 +14,24 @@ import textwrap
 import pty
 import fcntl
 import time
+import json
+import re
 from pathlib import Path
-from typing import Optional, List, Tuple
+from typing import Optional, List, Tuple, Dict, Any
 from dataclasses import dataclass
 
 try:
     from textual.app import App, ComposeResult
     from textual.widgets import (
         Header, Footer, Static, Label, Button, Log, 
-        Tab, TabbedContent, TabPane
+        Tab, TabbedContent, TabPane, Input, Select
     )
-    from textual.containers import Container, Horizontal, Vertical, ScrollableContainer
+    from textual.containers import Container, Horizontal, Vertical, ScrollableContainer, Grid
     from textual.binding import Binding
     from textual import on, events
     from textual.message import Message
     from textual.reactive import reactive
+    from textual.screen import Screen, ModalScreen
 except ImportError:
     print("Error: textual library not found. Please install it with:")
     print("  pip install textual")
@@ -52,9 +55,9 @@ except ImportError:
 # =============================================================================
 
 TABS = [
+    ("system", "System", "🖥️"),
     ("nixos", "NixOS", "❄️"),
     ("docker", "Docker", "🐳"),
-    ("system", "System", "🖥️"),
     ("git", "Git", "📂"),
     ("network", "Network", "🌐"),
     ("services", "Services", "⚙️"),
@@ -374,6 +377,658 @@ class OutputLog(Log):
 
 
 # =============================================================================
+# VM Creation Wizard
+# =============================================================================
+
+class VMCreateWizard(ModalScreen):
+    """Interactive wizard for creating virtual machines."""
+    
+    CSS = """
+    VMCreateWizard {
+        align: center middle;
+    }
+    
+    #wizard-container {
+        width: 80;
+        height: auto;
+        border: solid $primary;
+        background: $surface;
+        padding: 1;
+    }
+    
+    .wizard-title {
+        text-align: center;
+        text-style: bold;
+        padding: 1;
+        border-bottom: solid $primary;
+    }
+    
+    .wizard-question {
+        padding: 1;
+        text-style: bold;
+    }
+    
+    .wizard-option {
+        padding: 0 2;
+        margin: 0 1;
+    }
+    
+    .wizard-option.selected {
+        background: $primary 40%;
+    }
+    
+    .wizard-input {
+        margin: 1;
+    }
+    
+    .wizard-buttons {
+        height: 3;
+        align: center middle;
+        padding: 1;
+    }
+    
+    #btn-next {
+        width: 20;
+    }
+    """
+    
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel"),
+        Binding("enter", "select_option", "Select"),
+        Binding("up,k", "navigate_up", "Up"),
+        Binding("down,j", "navigate_down", "Down"),
+    ]
+    
+    def __init__(self, flake_path: Path, output_log: OutputLog):
+        super().__init__()
+        self.flake_path = flake_path
+        self.output_log = output_log
+        self.current_step = 0
+        self.selected_index = 0
+        self._custom_input_mode = None
+        self.vm_config = {
+            "name": "",
+            "vm_type": "",
+            "os_type": "",
+            "memory_gb": 4,
+            "cpu_cores": 2,
+            "disk_gb": 20,
+            "network": "default",
+            "create_nixos_config": False,
+            "create_instance": True,
+        }
+        
+        # Wizard steps
+        self.steps = [
+            ("vm_type", "VM Type", ["QEMU/KVM via libvirt (recommended)", "Other (specify)"]),
+            ("os_type", "Operating System", ["NixOS", "Other Linux", "Windows", "Multiple"]),
+            ("name", "VM Name", None),  # Text input
+            ("memory", "Memory (GB)", ["2", "4", "8", "16", "32", "Custom"]),
+            ("cpu", "CPU Cores", ["1", "2", "4", "8", "16", "Custom"]),
+            ("disk", "Disk Size (GB)", ["10", "20", "50", "100", "200", "Custom"]),
+            ("network", "Network Type", ["default (NAT)", "bridge", "macvtap", "None"]),
+            ("features", "Features", ["Create VM instance only", "Generate NixOS configs only", "Both"]),
+        ]
+    
+    def compose(self) -> ComposeResult:
+        with Container(id="wizard-container"):
+            yield Static("Virtual Machine Creation Wizard", classes="wizard-title")
+            yield Static("", id="wizard-question")
+            yield Static("", id="wizard-options")
+            yield Input(placeholder="Enter VM name...", id="wizard-input", classes="wizard-input")
+            yield Static("", id="wizard-input-hint")
+            with Horizontal(classes="wizard-buttons"):
+                yield Button("Cancel", id="btn-cancel", variant="error")
+                yield Button("Next", id="btn-next", variant="primary")
+                yield Button("Back", id="btn-back", variant="default")
+    
+    def on_mount(self) -> None:
+        self._update_step()
+        # Ensure the wizard screen can receive keyboard input
+        self.can_focus = True
+        # Call after refresh to ensure widgets are mounted
+        self.call_after_refresh(self._set_initial_focus)
+    
+    def _set_initial_focus(self) -> None:
+        """Set initial focus based on step type."""
+        step_id, question, options = self.steps[self.current_step]
+        if options is None:
+            # Text input step - focus the input
+            try:
+                input_widget = self.query_one("#wizard-input", Input)
+                self.set_focus(input_widget)
+            except:
+                pass
+        else:
+            # Selection step - focus the screen itself or Next button
+            try:
+                # Focus the screen so it can receive keyboard events
+                self.focus()
+            except:
+                pass
+    
+    def _update_step(self) -> None:
+        """Update the wizard display for current step."""
+        if self.current_step >= len(self.steps):
+            self._finish_wizard()
+            return
+        
+        step_id, question, options = self.steps[self.current_step]
+        question_widget = self.query_one("#wizard-question", Static)
+        options_widget = self.query_one("#wizard-options", Static)
+        input_widget = self.query_one("#wizard-input", Input)
+        hint_widget = self.query_one("#wizard-input-hint", Static)
+        
+        question_widget.update(f"Step {self.current_step + 1}/{len(self.steps)}: {question}")
+        
+        # Handle text input steps
+        if options is None:
+            options_widget.update("")
+            # For name input, show text input
+            if step_id == "name":
+                input_widget.visible = True
+                input_widget.value = self.vm_config.get("name", "")
+                input_widget.placeholder = "Enter VM name (e.g., my-vm)"
+                hint_widget.update("Press Enter to confirm, or click Next")
+                self.set_focus(input_widget)
+            else:
+                input_widget.visible = False
+                hint_widget.update("")
+            return
+        
+        # Handle selection steps
+        input_widget.visible = False
+        self._custom_input_mode = None
+        hint_widget.update("Use ↑↓ to navigate, Enter to select, or click [bold]Next[/bold] button")
+        options_text = ""
+        for idx, option in enumerate(options):
+            marker = "❯" if idx == self.selected_index else " "
+            options_text += f"{marker} {option}\n"
+        options_widget.update(options_text)
+        # Ensure screen can receive keyboard input for selection steps
+        self.call_after_refresh(lambda: self.focus())
+        # Also ensure Next button is visible and enabled
+        try:
+            btn_next = self.query_one("#btn-next", Button)
+            btn_next.disabled = False
+        except:
+            pass
+    
+    def action_navigate_up(self) -> None:
+        step_id, question, options = self.steps[self.current_step]
+        if options and self.selected_index > 0:
+            self.selected_index -= 1
+            self._update_step()
+        elif options is None:
+            # For input steps, focus stays on input
+            pass
+    
+    def action_navigate_down(self) -> None:
+        step_id, question, options = self.steps[self.current_step]
+        if options and self.selected_index < len(options) - 1:
+            self.selected_index += 1
+            self._update_step()
+        elif options is None:
+            # For input steps, focus stays on input
+            pass
+    
+    def action_select_option(self) -> None:
+        """Handle Enter key - select option or move to next step."""
+        step_id, question, options = self.steps[self.current_step]
+        
+        if options is None:
+            # Text input step - handled separately
+            return
+        
+        if not options or self.selected_index >= len(options):
+            return
+        
+        # Handle custom options
+        selected = options[self.selected_index]
+        if "Custom" in selected and step_id in ["memory", "cpu", "disk"]:
+            self._handle_custom_input(step_id)
+            return
+        
+        # Store selection
+        if step_id == "vm_type":
+            if "Other" in selected:
+                # For "Other", we'll just note it but still use libvirt
+                self.vm_config["vm_type"] = "libvirt"
+                self.vm_config["vm_type_other"] = True
+            else:
+                # Extract the VM type (everything before the first parenthesis)
+                vm_type_str = selected.split("(")[0].strip()
+                # Handle "QEMU/KVM via libvirt" -> "libvirt"
+                if "libvirt" in vm_type_str.lower():
+                    self.vm_config["vm_type"] = "libvirt"
+                else:
+                    self.vm_config["vm_type"] = vm_type_str
+        elif step_id == "os_type":
+            self.vm_config["os_type"] = selected
+        elif step_id == "memory":
+            if "Custom" not in selected:
+                self.vm_config["memory_gb"] = int(selected)
+            else:
+                self._handle_custom_input(step_id)
+                return
+        elif step_id == "cpu":
+            if "Custom" not in selected:
+                self.vm_config["cpu_cores"] = int(selected)
+            else:
+                self._handle_custom_input(step_id)
+                return
+        elif step_id == "disk":
+            if "Custom" not in selected:
+                self.vm_config["disk_gb"] = int(selected)
+            else:
+                self._handle_custom_input(step_id)
+                return
+        elif step_id == "network":
+            net_type = selected.split("(")[0].strip().lower()
+            if net_type == "none":
+                self.vm_config["network"] = None
+            else:
+                self.vm_config["network"] = net_type
+        elif step_id == "features":
+            if "instance only" in selected.lower():
+                self.vm_config["create_instance"] = True
+                self.vm_config["create_nixos_config"] = False
+            elif "configs only" in selected.lower():
+                self.vm_config["create_instance"] = False
+                self.vm_config["create_nixos_config"] = True
+            else:  # Both
+                self.vm_config["create_instance"] = True
+                self.vm_config["create_nixos_config"] = True
+        
+        self._next_step()
+    
+    def _handle_custom_input(self, step_id: str) -> None:
+        """Handle custom input for memory, CPU, or disk."""
+        # Switch to input mode for custom values
+        input_widget = self.query_one("#wizard-input", Input)
+        hint_widget = self.query_one("#wizard-input-hint", Static)
+        options_widget = self.query_one("#wizard-options", Static)
+        
+        if step_id == "memory":
+            input_widget.visible = True
+            input_widget.value = str(self.vm_config.get("memory_gb", 4))
+            input_widget.placeholder = "Enter memory in GB (e.g., 16)"
+            hint_widget.update("Press Enter to confirm")
+            options_widget.update("")
+            self.set_focus(input_widget)
+            # Store that we're in custom input mode
+            self._custom_input_mode = "memory"
+        elif step_id == "cpu":
+            input_widget.visible = True
+            input_widget.value = str(self.vm_config.get("cpu_cores", 2))
+            input_widget.placeholder = "Enter CPU cores (e.g., 6)"
+            hint_widget.update("Press Enter to confirm")
+            options_widget.update("")
+            self.set_focus(input_widget)
+            self._custom_input_mode = "cpu"
+        elif step_id == "disk":
+            input_widget.visible = True
+            input_widget.value = str(self.vm_config.get("disk_gb", 20))
+            input_widget.placeholder = "Enter disk size in GB (e.g., 100)"
+            hint_widget.update("Press Enter to confirm")
+            options_widget.update("")
+            self.set_focus(input_widget)
+            self._custom_input_mode = "disk"
+    
+    @on(Input.Submitted, "#wizard-input")
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        """Handle input submission."""
+        step_id, question, options = self.steps[self.current_step]
+        
+        if step_id == "name":
+            name = event.value.strip()
+            if name:
+                # Validate VM name (no spaces, valid characters)
+                if re.match(r'^[a-zA-Z0-9_-]+$', name):
+                    self.vm_config["name"] = name
+                    self._next_step()
+                else:
+                    self.query_one("#wizard-input-hint", Static).update("VM name can only contain letters, numbers, hyphens, and underscores")
+            else:
+                self.query_one("#wizard-input-hint", Static).update("Please enter a valid VM name")
+        elif self._custom_input_mode:
+            # Handle custom input for memory, CPU, or disk
+            try:
+                value = int(event.value.strip())
+                if value > 0:
+                    if self._custom_input_mode == "memory":
+                        self.vm_config["memory_gb"] = value
+                    elif self._custom_input_mode == "cpu":
+                        self.vm_config["cpu_cores"] = value
+                    elif self._custom_input_mode == "disk":
+                        self.vm_config["disk_gb"] = value
+                    self._custom_input_mode = None
+                    self._next_step()
+                else:
+                    self.query_one("#wizard-input-hint", Static).update("Please enter a positive number")
+            except ValueError:
+                self.query_one("#wizard-input-hint", Static).update("Please enter a valid number")
+    
+    @on(Button.Pressed, "#btn-next")
+    def on_next(self) -> None:
+        """Handle Next button press."""
+        try:
+            step_id, question, options = self.steps[self.current_step]
+        except IndexError:
+            # Already at the end
+            return
+        
+        if options is None:
+            # Text input step
+            if step_id == "name":
+                input_widget = self.query_one("#wizard-input", Input)
+                name = input_widget.value.strip()
+                if name:
+                    if re.match(r'^[a-zA-Z0-9_-]+$', name):
+                        self.vm_config["name"] = name
+                        self._next_step()
+                    else:
+                        self.query_one("#wizard-input-hint", Static).update("VM name can only contain letters, numbers, hyphens, and underscores")
+                else:
+                    self.query_one("#wizard-input-hint", Static).update("Please enter a valid VM name")
+            return
+        
+        if self._custom_input_mode:
+            # In custom input mode, submit the input
+            input_widget = self.query_one("#wizard-input", Input)
+            try:
+                value = int(input_widget.value.strip())
+                if value > 0:
+                    if self._custom_input_mode == "memory":
+                        self.vm_config["memory_gb"] = value
+                    elif self._custom_input_mode == "cpu":
+                        self.vm_config["cpu_cores"] = value
+                    elif self._custom_input_mode == "disk":
+                        self.vm_config["disk_gb"] = value
+                    self._custom_input_mode = None
+                    self._next_step()
+                else:
+                    self.query_one("#wizard-input-hint", Static).update("Please enter a positive number")
+            except ValueError:
+                self.query_one("#wizard-input-hint", Static).update("Please enter a valid number")
+            return
+        
+        # For selection steps, use selected option
+        if options and len(options) > 0:
+            # Make sure we have a valid selection
+            if self.selected_index >= len(options):
+                self.selected_index = 0
+            self.action_select_option()
+        else:
+            # This shouldn't happen, but if it does, just move to next step
+            self._next_step()
+    
+    @on(Button.Pressed, "#btn-back")
+    def on_back(self) -> None:
+        if self.current_step > 0:
+            self.current_step -= 1
+            self.selected_index = 0
+            self._update_step()
+    
+    @on(Button.Pressed, "#btn-cancel")
+    def on_cancel(self) -> None:
+        self.dismiss(None)
+    
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+    
+    def _next_step(self) -> None:
+        """Move to next step."""
+        self.current_step += 1
+        self.selected_index = 0
+        self._update_step()
+    
+    def _finish_wizard(self) -> None:
+        """Complete the wizard and create the VM."""
+        # Validate configuration
+        if not self.vm_config.get("name"):
+            self.vm_config["name"] = f"vm-{int(time.time())}"
+        
+        # Create VM based on configuration
+        self.output_log.write_line("\n" + "=" * 60 + "\n")
+        self.output_log.write_line("VM Creation Summary:\n")
+        self.output_log.write_line(f"  Name: {self.vm_config['name']}\n")
+        self.output_log.write_line(f"  Type: {self.vm_config['vm_type']}\n")
+        self.output_log.write_line(f"  OS: {self.vm_config['os_type']}\n")
+        self.output_log.write_line(f"  Memory: {self.vm_config['memory_gb']}GB\n")
+        self.output_log.write_line(f"  CPU Cores: {self.vm_config['cpu_cores']}\n")
+        self.output_log.write_line(f"  Disk: {self.vm_config['disk_gb']}GB\n")
+        self.output_log.write_line(f"  Network: {self.vm_config['network']}\n")
+        self.output_log.write_line("=" * 60 + "\n\n")
+        
+        # Create VM
+        def create_vm_thread():
+            try:
+                if self.vm_config["create_nixos_config"] and self.vm_config["os_type"] == "NixOS":
+                    self._create_nixos_configs()
+                
+                if self.vm_config["create_instance"]:
+                    self._create_vm_instance()
+                
+                self.call_from_thread(self.output_log.write_line, "\n✓ VM creation completed!\n")
+                self.call_from_thread(self.dismiss, True)
+            except Exception as e:
+                self.call_from_thread(self.output_log.write_line, f"\n✗ Error creating VM: {e}\n")
+                import traceback
+                self.call_from_thread(self.output_log.write_line, traceback.format_exc() + "\n")
+                self.call_from_thread(self.dismiss, False)
+        
+        thread = threading.Thread(target=create_vm_thread, daemon=True)
+        thread.start()
+    
+    def _create_nixos_configs(self) -> None:
+        """Generate NixOS configuration files for the VM."""
+        vm_name = self.vm_config["name"]
+        vm_dir = self.flake_path / "machines" / vm_name
+        vm_dir.mkdir(parents=True, exist_ok=True)
+        
+        self.call_from_thread(self.output_log.write_line, f"Generating NixOS configs for {vm_name}...\n")
+        
+        # Generate configuration.nix
+        config_nix = f"""# {vm_name} VM configuration
+{{ config, pkgs, ... }}:
+
+{{
+  imports = [
+    ../../common/common.nix
+  ];
+
+  # Allow unfree packages
+  nixpkgs.config.allowUnfree = true;
+
+  # Bootloader
+  boot.loader.systemd-boot.enable = true;
+  boot.loader.efi.canTouchEfiVariables = true;
+
+  # Networking
+  networking.hostName = "{vm_name}";
+  networking.networkmanager.enable = true;
+
+  # No GUI by default (can be enabled later)
+  services.xserver.enable = false;
+
+  # System packages
+  environment.systemPackages = with pkgs; [
+    # Add your packages here
+  ];
+}}
+"""
+        
+        # Generate hardware-configuration.nix
+        hardware_nix = f"""# {vm_name} VM hardware configuration
+{{ config, lib, pkgs, modulesPath, ... }}:
+
+{{
+  imports = [ ];
+
+  # Boot configuration
+  boot.initrd.availableKernelModules = [ "sd_mod" "sr_mod" ];
+  boot.initrd.kernelModules = [ ];
+  boot.kernelModules = [ ];
+  boot.extraModulePackages = [ ];
+  
+  # Bootloader settings
+  boot.loader.systemd-boot.enable = true;
+  boot.loader.efi.canTouchEfiVariables = true;
+
+  # File systems - VM will use virtual disk
+  # These will be configured when the VM is first booted
+  fileSystems."/" = {{
+    device = "/dev/disk/by-uuid/CHANGE-ME";
+    fsType = "ext4";
+  }};
+
+  swapDevices = [ ];
+
+  # Networking
+  networking.useDHCP = lib.mkDefault true;
+
+  # Hardware
+  nixpkgs.hostPlatform = lib.mkDefault "x86_64-linux";
+}}
+"""
+        
+        # Write files
+        (vm_dir / "configuration.nix").write_text(config_nix)
+        (vm_dir / "hardware-configuration.nix").write_text(hardware_nix)
+        
+        self.call_from_thread(self.output_log.write_line, f"✓ Created {vm_dir}/configuration.nix\n")
+        self.call_from_thread(self.output_log.write_line, f"✓ Created {vm_dir}/hardware-configuration.nix\n")
+        
+        # Update flake.nix
+        self._update_flake_nix(vm_name)
+    
+    def _update_flake_nix(self, vm_name: str) -> None:
+        """Add VM configuration to flake.nix."""
+        flake_path = self.flake_path / "flake.nix"
+        flake_content = flake_path.read_text()
+        
+        # Check if VM already exists in flake
+        if f'"{vm_name}"' in flake_content:
+            self.call_from_thread(self.output_log.write_line, f"⚠ {vm_name} already exists in flake.nix, skipping update\n")
+            return
+        
+        # Find the nixosConfigurations section
+        # Add new configuration before the closing brace
+        new_config = f"""
+        # {vm_name} VM configuration
+        {vm_name} = nixpkgs.lib.nixosSystem {{
+          inherit system;
+          modules = [
+            ./machines/{vm_name}/configuration.nix
+            ./machines/{vm_name}/hardware-configuration.nix
+          ];
+        }};
+"""
+        
+        # Insert before the closing brace of nixosConfigurations
+        pattern = r'(nixosConfigurations = \{)(.*?)(\s+\};)'
+        match = re.search(pattern, flake_content, re.DOTALL)
+        
+        if match:
+            before = match.group(1) + match.group(2)
+            after = match.group(3)
+            new_content = before + new_config + after
+            flake_path.write_text(new_content)
+            self.call_from_thread(self.output_log.write_line, f"✓ Updated flake.nix with {vm_name} configuration\n")
+        else:
+            self.call_from_thread(self.output_log.write_line, f"⚠ Could not automatically update flake.nix\n")
+            self.call_from_thread(self.output_log.write_line, f"Please manually add the {vm_name} configuration\n")
+    
+    def _create_vm_instance(self) -> None:
+        """Create the actual VM instance using virt-install."""
+        # Check if virt-install is available
+        if not shutil.which("virt-install"):
+            self.call_from_thread(self.output_log.write_line, "Error: virt-install command not found.\n")
+            self.call_from_thread(self.output_log.write_line, "Please install virt-install:\n")
+            self.call_from_thread(self.output_log.write_line, "  nix-shell -p virt-manager\n")
+            self.call_from_thread(self.output_log.write_line, "Or via NixOS: programs.virt-manager.enable = true;\n")
+            raise Exception("virt-install not found")
+        
+        vm_name = self.vm_config["name"]
+        memory_mb = self.vm_config["memory_gb"] * 1024
+        vcpus = self.vm_config["cpu_cores"]
+        disk_gb = self.vm_config["disk_gb"]
+        network = self.vm_config["network"]
+        os_type = self.vm_config["os_type"]
+        
+        self.call_from_thread(self.output_log.write_line, f"Creating VM instance: {vm_name}...\n")
+        
+        # Determine OS variant
+        os_variant = "generic"
+        if os_type == "NixOS":
+            os_variant = "nixos"
+        elif os_type == "Windows":
+            os_variant = "win10"
+        elif os_type == "Other Linux":
+            os_variant = "generic"
+        
+        # Build virt-install command
+        cmd = [
+            "virt-install",
+            "--name", vm_name,
+            "--memory", str(memory_mb),
+            "--vcpus", str(vcpus),
+            "--disk", f"size={disk_gb},format=qcow2",
+            "--os-variant", os_variant,
+            "--noautoconsole",
+        ]
+        
+        # Add network
+        if network is None:
+            # No network
+            pass
+        elif network == "default":
+            cmd.extend(["--network", "default"])
+        elif network == "bridge":
+            # Try to find a bridge
+            try:
+                result = subprocess.run(
+                    ["virsh", "net-list", "--name"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5
+                )
+                if result.returncode == 0 and result.stdout.strip():
+                    bridge = result.stdout.strip().split("\n")[0]
+                    cmd.extend(["--network", f"bridge={bridge}"])
+                else:
+                    cmd.extend(["--network", "default"])
+            except:
+                cmd.extend(["--network", "default"])
+        elif network == "macvtap":
+            cmd.extend(["--network", "type=direct,source=eth0,mode=bridge"])
+        
+        # For NixOS, we might want to add a CD-ROM for installation
+        if os_type == "NixOS":
+            # Check if we have a NixOS ISO or use network install
+            cmd.extend(["--graphics", "none", "--console", "pty,target_type=serial"])
+        
+        self.call_from_thread(self.output_log.write_line, f"Running: {' '.join(cmd)}\n\n")
+        
+        # Run virt-install
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            cwd=self.flake_path
+        )
+        
+        if result.returncode == 0:
+            self.call_from_thread(self.output_log.write_line, f"✓ VM {vm_name} created successfully!\n")
+            self.call_from_thread(self.output_log.write_line, f"\nTo start the VM: virsh start {vm_name}\n")
+            self.call_from_thread(self.output_log.write_line, f"To view console: virsh console {vm_name}\n")
+        else:
+            self.call_from_thread(self.output_log.write_line, f"✗ Error creating VM:\n{result.stderr}\n")
+            raise Exception(f"virt-install failed: {result.stderr}")
+
+
+# =============================================================================
 # Main Application
 # =============================================================================
 
@@ -504,18 +1159,19 @@ class ManageApp(App):
         Binding("enter", "execute_action", "Execute"),
         Binding("tab", "next_tab", "Next Tab"),
         Binding("shift+tab", "prev_tab", "Prev Tab"),
-        Binding("1", "tab_1", "NixOS", show=False),
-        Binding("2", "tab_2", "Docker", show=False),
-        Binding("3", "tab_3", "System", show=False),
+        Binding("1", "tab_1", "System", show=False),
+        Binding("2", "tab_2", "NixOS", show=False),
+        Binding("3", "tab_3", "Docker", show=False),
         Binding("4", "tab_4", "Git", show=False),
         Binding("5", "tab_5", "Network", show=False),
         Binding("6", "tab_6", "Services", show=False),
         Binding("7", "tab_7", "Storage", show=False),
+        Binding("8", "tab_8", "VMs", show=False),
         Binding("m", "cycle_machine", "Machine"),
         Binding("c", "clear_output", "Clear"),
     ]
     
-    current_tab = reactive("nixos")
+    current_tab = reactive("system")
     
     def __init__(self):
         super().__init__()
@@ -564,7 +1220,7 @@ class ManageApp(App):
                 # Left side: Action panel (changes based on tab selection)
                 with Vertical(id="action-panel"):
                     # We'll dynamically update this based on tab selection
-                    yield ActionList("nixos", id="actions-current")
+                    yield ActionList("system", id="actions-current")
                     
                     yield Static(
                         "Select an action to see its description",
@@ -714,6 +1370,9 @@ class ManageApp(App):
     
     def action_tab_7(self) -> None:
         self._switch_to_tab(6)
+    
+    def action_tab_8(self) -> None:
+        self._switch_to_tab(7)
     
     def _switch_to_tab(self, index: int) -> None:
         if 0 <= index < len(TABS):
@@ -1567,25 +2226,19 @@ class ManageApp(App):
         spinner.stop_success()
     
     def _vm_create_helper(self, output_log: OutputLog) -> None:
-        """Create a new VM - shows instructions for VM creation."""
-        output_log.write_line("VM Creation\n")
-        output_log.write_line("=" * 60 + "\n\n")
-        output_log.write_line("VM creation functionality is available.\n\n")
-        output_log.write_line("To create a VM, you'll need to:\n\n")
-        output_log.write_line("1. Use virt-install or virt-manager directly:\n")
-        output_log.write_line("   virt-install --name myvm --memory 4096 --vcpus 2 \\\n")
-        output_log.write_line("     --disk size=20,format=qcow2 --os-variant generic\n\n")
-        output_log.write_line("2. Or use virt-manager GUI:\n")
-        output_log.write_line("   virt-manager\n\n")
-        output_log.write_line("For NixOS VMs, you can manually:\n")
-        output_log.write_line("  • Create configuration.nix and hardware-configuration.nix\n")
-        output_log.write_line("  • Add the VM to flake.nix\n")
-        output_log.write_line("  • Use nixos-generate-config to generate initial config\n\n")
-        output_log.write_line("=" * 60 + "\n")
-        output_log.write_line("\nNote: Full VM creation wizard coming soon.\n")
-        
+        """Create a new VM - launches interactive wizard."""
         spinner = self.query_one("#spinner", Spinner)
-        spinner.stop_success()
+        spinner.stop()
+        
+        # Check if libvirt tools are available
+        if not shutil.which("virsh"):
+            output_log.write_line("Error: virsh command not found.\n")
+            output_log.write_line("Make sure libvirt is installed: nix-shell -p libvirt\n")
+            output_log.write_line("Or install via NixOS: services.libvirtd.enable = true;\n")
+            return
+        
+        # Launch the VM creation wizard
+        self.push_screen(VMCreateWizard(self.flake_path, output_log))
 
 
 # =============================================================================

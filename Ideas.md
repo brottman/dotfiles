@@ -1,4 +1,4 @@
-Implement the creation of virtual machines in the manage script. Ask various questions to help determine the configuration:
+Implement the creation of virtual machines in the manage script. Ask various questions by having the user select options with the arrow keys to help determine the configuration:
 
 1, VM type:
     - QEMU/KVM via libvirt (recommended, already configured)
