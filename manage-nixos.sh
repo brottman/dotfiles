@@ -37,6 +37,7 @@ Commands:
   pull                  Git pull latest changes and rerun the script
   list-machines         List all available machines
   status [MACHINE]      Show status of a machine
+  health                Run system health check
   gc                    Garbage collect old generations
 
 Options:
@@ -301,6 +302,24 @@ cmd_rebuild_all() {
     fi
 }
 
+cmd_health() {
+    local health_script="$FLAKE_PATH/scripts/check-system-health.sh"
+    
+    if [[ ! -f "$health_script" ]]; then
+        echo "Error: Health check script not found at $health_script"
+        exit 1
+    fi
+    
+    if [[ ! -x "$health_script" ]]; then
+        echo "Making health check script executable..."
+        chmod +x "$health_script"
+    fi
+    
+    echo "Running system health check..."
+    echo ""
+    "$health_script"
+}
+
 cmd_gc() {
     echo "Running garbage collection..."
     
@@ -339,6 +358,7 @@ interactive_mode() {
         echo "6. List generations"
         echo "7. List available machines"
         echo "8. Git pull and rerun"
+        echo "9. System health check"
         echo "q. Quit"
         echo "r. Reboot"
         echo "=========================================="
@@ -370,6 +390,9 @@ interactive_mode() {
                 ;;
             8)
                 cmd_pull
+                ;;
+            9)
+                cmd_health
                 ;;
             q|Q)
                 echo "Exiting..."
@@ -424,6 +447,9 @@ main() {
             ;;
         status)
             cmd_status "$@"
+            ;;
+        health)
+            cmd_health "$@"
             ;;
         gc)
             cmd_gc "$@"
