@@ -308,7 +308,7 @@ cmd_gc() {
     sudo nix-collect-garbage -d
     
     echo "Garbage collection complete"
-    echo "Note: Run 'nix-collect-garbage --delete-older-than 7d' to also delete generations older than 7 days"
+    echo "Note: Old system generations (>7 days) are automatically cleaned up weekly via nix.gc.automatic"
 }
 
 cmd_pull() {
