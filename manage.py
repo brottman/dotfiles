@@ -527,6 +527,8 @@ class ManageApp(App):
             self.machine_index = self.machines_list.index(self.current_machine)
         self._current_process = None
         self._current_process_exit_code = None
+        self._pending_dangerous_action = None  # (action_id, title, requires_machine)
+        self._dangerous_confirmation_count = 0
     
     def _detect_current_machine(self) -> Optional[str]:
         """Detect the current machine from hostname."""
@@ -620,6 +622,9 @@ class ManageApp(App):
         """Handle tab change."""
         tab_id = event.pane.id.replace("tab-", "")
         self.current_tab = tab_id
+        # Reset dangerous action confirmation when changing tabs
+        self._pending_dangerous_action = None
+        self._dangerous_confirmation_count = 0
         
         # Update the action list to show actions for the new tab
         action_panel = self.query_one("#action-panel", Vertical)
@@ -648,12 +653,18 @@ class ManageApp(App):
         if action_list:
             action_list.select_previous()
             self._update_description()
+            # Reset dangerous action confirmation when navigating
+            self._pending_dangerous_action = None
+            self._dangerous_confirmation_count = 0
     
     def action_navigate_down(self) -> None:
         action_list = self._get_current_action_list()
         if action_list:
             action_list.select_next()
             self._update_description()
+            # Reset dangerous action confirmation when navigating
+            self._pending_dangerous_action = None
+            self._dangerous_confirmation_count = 0
     
     def action_next_tab(self) -> None:
         """Switch to the next tab."""
@@ -739,17 +750,47 @@ class ManageApp(App):
         
         # Confirmation for dangerous actions
         if dangerous:
-            # For now, just warn - in a full implementation you'd use a modal
+            # Check if we're already in confirmation mode for this action
+            if self._pending_dangerous_action is not None:
+                pending_id, pending_title, pending_requires_machine = self._pending_dangerous_action
+                if pending_id == action_id:
+                    # Second Enter press - confirm and execute
+                    self._dangerous_confirmation_count = 0
+                    self._pending_dangerous_action = None
+                    spinner.start()
+                    output_log.clear()
+                    output_log.write_line(f"Executing: {title}\n")
+                    
+                    machine = self.current_machine if requires_machine else None
+                    if requires_machine:
+                        output_log.write_line(f"Machine: {machine}\n")
+                    
+                    output_log.write_line("-" * 60 + "\n")
+                    
+                    # Execute the appropriate command
+                    self._run_action(action_id, machine, output_log)
+                    return
+                else:
+                    # Different dangerous action selected - reset
+                    self._pending_dangerous_action = None
+                    self._dangerous_confirmation_count = 0
+            
+            # First Enter press - show warning and ask for confirmation
             spinner.stop()
             output_log.clear()
             output_log.write_line(f"⚠️  WARNING: '{title}' is a dangerous operation!\n")
-            output_log.write_line("This command has been blocked for safety.\n")
-            output_log.write_line("To execute dangerous commands, run them directly from the terminal.\n")
-            output_log.write_line("Command that would have been run:\n")
-            # Show what command would have been executed
+            output_log.write_line("Press Enter twice to confirm and execute this command.\n")
             if requires_machine:
                 output_log.write_line(f"  Machine: {self.current_machine}\n")
+            
+            # Store pending action for confirmation
+            self._pending_dangerous_action = (action_id, title, requires_machine)
+            self._dangerous_confirmation_count = 1
             return
+        
+        # Reset dangerous action state if a non-dangerous action is selected
+        self._pending_dangerous_action = None
+        self._dangerous_confirmation_count = 0
         
         spinner.start()
         output_log.clear()
