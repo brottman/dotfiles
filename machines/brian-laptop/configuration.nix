@@ -191,6 +191,12 @@
     };
   };
 
+  # Ollama
+  services.ollama = {
+    enable = true;
+    acceleration = "cuda";
+  };
+
   # Additional packages for laptop
   environment.systemPackages = with pkgs; [
     anki
