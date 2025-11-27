@@ -60,7 +60,6 @@
     sanoid
     mailutils
     postfix
-    python3
   ];
 
   # Disable sleep/suspend
