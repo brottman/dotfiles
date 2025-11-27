@@ -199,6 +199,7 @@
     lmstudio
     lutris
     #micromamba
+    opencode
     pinta
     prismlauncher
     rclone
@@ -243,19 +244,6 @@
     shutdown = "sudo systemctl poweroff";
     comfyui = "python /data/archive/ComfyUI/main.py";
     comfyui89 = "python /data/archive/plain/ComfyUI/main.py";
-  };
-
-  # Systemd service to make Joplin window-state-prod.json immutable
-  systemd.services."immutable-joplin-window-state" = {
-    description = "Make Joplin window-state-prod.json immutable";
-    wantedBy = [ "multi-user.target" ];
-    after = [ "local-fs.target" ];
-    serviceConfig = {
-      Type = "oneshot";
-      ExecStart = "${pkgs.e2fsprogs}/bin/chattr +i /home/brian/.config/joplin-desktop/window-state-prod.json";
-      ExecStartPre = "${pkgs.coreutils}/bin/test -f /home/brian/.config/joplin-desktop/window-state-prod.json";
-      RemainAfterExit = true;
-    };
   };
 
   # System state version (override common default)
