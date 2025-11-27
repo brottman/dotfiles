@@ -215,10 +215,10 @@
     joplin-desktop
     lmstudio
     lutris
-    #micromamba
     opencode
     pinta
     prismlauncher
+    python3
     rclone
     remmina
     restic

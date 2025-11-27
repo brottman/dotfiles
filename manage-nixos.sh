@@ -409,8 +409,17 @@ interactive_mode() {
 }
 
 main() {
-    # If no arguments, enter interactive mode
+    # If no arguments, try to launch TUI, fallback to interactive mode
     if [[ $# -eq 0 ]]; then
+        # Check if TUI script exists and Python with rich is available
+        local tui_script="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/manage-nixos-tui.py"
+        if [[ -f "$tui_script" ]] && command -v python3 &> /dev/null; then
+            # Try to import rich to check if it's available
+            if python3 -c "import rich" 2>/dev/null; then
+                exec python3 "$tui_script"
+            fi
+        fi
+        # Fallback to basic interactive mode
         interactive_mode
     fi
     
