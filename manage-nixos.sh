@@ -357,8 +357,8 @@ interactive_mode() {
         echo "5. Garbage collection"
         echo "6. List generations"
         echo "7. List available machines"
-        echo "8. Git pull and rerun"
-        echo "9. System health check"
+        echo "8. System health check"
+        echo "9. Git pull and rerun"
         echo "q. Quit"
         echo "r. Reboot"
         echo "=========================================="
@@ -389,10 +389,10 @@ interactive_mode() {
                 cmd_list_machines
                 ;;
             8)
-                cmd_pull
+                cmd_health
                 ;;
             9)
-                cmd_health
+                cmd_pull
                 ;;
             q|Q)
                 echo "Exiting..."
