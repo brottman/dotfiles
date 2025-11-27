@@ -9,10 +9,9 @@
     };
     systemd.timers.zfs-send-backup = {
         wantedBy = [ "timers.target" ];
-        partOf = [ "zfs-send-backup.service" ];
         timerConfig = {
-        OnCalendar = "hourly";
-        Unit = "zfs-send-backup.service";
+            OnCalendar = "hourly";
+            Persistent = true;
         };
     };
 
@@ -23,10 +22,9 @@
     };
     systemd.timers.zfs-send-brian = {
         wantedBy = [ "timers.target" ];
-        partOf = [ "zfs-send-brian.service" ];
         timerConfig = {
-        OnCalendar = "hourly";
-        Unit = "zfs-send-brian.service";
+            OnCalendar = "hourly";
+            Persistent = true;
         };
     };    
 
@@ -37,10 +35,9 @@
     };
     systemd.timers.zfs-send-data = {
         wantedBy = [ "timers.target" ];
-        partOf = [ "zfs-send-data.service" ];
         timerConfig = {
-        OnCalendar = "hourly";
-        Unit = "zfs-send-data.service";
+            OnCalendar = "hourly";
+            Persistent = true;
         };
     };
 
@@ -51,10 +48,9 @@
     };
     systemd.timers.zfs-send-docker = {
         wantedBy = [ "timers.target" ];
-        partOf = [ "zfs-send-docker.service" ];
         timerConfig = {
-        OnCalendar = "hourly";
-        Unit = "zfs-send-docker.service";
+            OnCalendar = "hourly";
+            Persistent = true;
         };
     };
 }
