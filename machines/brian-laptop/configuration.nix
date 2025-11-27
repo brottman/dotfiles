@@ -149,6 +149,9 @@
     enable = true;
     extensions = with pkgs.vscode-extensions; [
       continue.continue
+      ms-python.python
+      jnoortheen.nix-ide
+      ms-azuretools.vscode-docker
     ];
   };
 
