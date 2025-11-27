@@ -8,6 +8,25 @@
     ./timers.nix
   ];
 
+  # SOPS secrets management
+  sops = {
+    defaultSopsFile = ../../secrets/superheavy.yaml;
+    age.keyFile = "/etc/sops/age/keys.txt";
+    
+    secrets = {
+      postfix_gmail_password = {
+        owner = "root";
+        group = "postfix";
+        mode = "0400";
+      };
+      samba_brian_password = {
+        owner = "root";
+        group = "root";
+        mode = "0600";
+      };
+    };
+  };
+
   # ZFS support
   boot.supportedFilesystems = [ "zfs" ];
   boot.zfs.extraPools = [ "datapool" ];
@@ -76,13 +95,13 @@
     };
   };
 
-  # Postfix Gmail credentials and sender mapping in /var/lib/postfix
+  # Postfix sender mapping (no secrets, safe to keep in config)
   environment.etc = {
-    "postfix-setup/gmail_password".text = "brottman@gmail.com kcxl zipl nlst opau";
     "postfix-setup/sender_canonical".text = "/.*/ brottman@gmail.com";
   };
 
   # Generate the postmap database files after Postfix starts
+  # Gmail password is now read from sops secret
   systemd.services.postfix-db-setup = {
     description = "Setup Postfix database files";
     wantedBy = [ "multi-user.target" ];
@@ -94,7 +113,8 @@
     };
     script = ''
       mkdir -p /var/lib/postfix
-      cp /etc/postfix-setup/gmail_password /var/lib/postfix/gmail_password
+      # Create gmail_password file from sops secret
+      echo "brottman@gmail.com $(cat ${config.sops.secrets.postfix_gmail_password.path})" > /var/lib/postfix/gmail_password
       cp /etc/postfix-setup/sender_canonical /var/lib/postfix/sender_canonical
       ${pkgs.postfix}/bin/postmap /var/lib/postfix/gmail_password
       ${pkgs.postfix}/bin/postmap /var/lib/postfix/sender_canonical

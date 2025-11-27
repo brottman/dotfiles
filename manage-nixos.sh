@@ -304,13 +304,8 @@ cmd_rebuild_all() {
 cmd_gc() {
     echo "Running garbage collection..."
     
-    # Delete old generations from boot loader
-    echo "Deleting old boot entries..."
+    # Delete old generations and clean up unused store paths
     sudo nix-collect-garbage -d
-    
-    # Clean up unused store paths
-    echo "Cleaning up unused store paths..."
-    sudo nix store gc --debug
     
     echo "Garbage collection complete"
     echo "Note: Run 'nix-collect-garbage --delete-older-than 7d' to also delete generations older than 7 days"

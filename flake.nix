@@ -12,9 +12,11 @@
     home-manager.inputs.nixpkgs.follows = "nixpkgs";
     plasma-manager.url = "github:pjones/plasma-manager";
     plasma-manager.inputs.nixpkgs.follows = "nixpkgs";
+    sops-nix.url = "github:Mic92/sops-nix";
+    sops-nix.inputs.nixpkgs.follows = "nixpkgs";
   };
 
-  outputs = { self, nixpkgs, nixpkgs-stable, home-manager, plasma-manager }:
+  outputs = { self, nixpkgs, nixpkgs-stable, home-manager, plasma-manager, sops-nix }:
     let
       system = "x86_64-linux";
       pkgs = nixpkgs.legacyPackages.${system};
@@ -46,6 +48,7 @@
           modules = [
             ./machines/superheavy/configuration.nix
             ./machines/superheavy/hardware-configuration.nix
+            sops-nix.nixosModules.sops
           ];
         };
 
@@ -73,6 +76,8 @@
         buildInputs = with pkgs; [
           nixfmt
           nix-output-monitor
+          sops
+          age
         ];
       };
     };

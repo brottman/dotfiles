@@ -6,6 +6,13 @@
   services.samba = {
     enable = true;
     openFirewall = false; # We manage firewall manually
+    # Samba users with passwords from sops
+    users = [
+      {
+        name = "brian";
+        passwordFile = config.sops.secrets.samba_brian_password.path;
+      }
+    ];
     settings = {
       global = {
         workgroup = "WORKGROUP";
