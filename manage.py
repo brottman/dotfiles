@@ -201,7 +201,7 @@ class ActionItem(Static):
         self._selected = False
     
     def compose(self) -> ComposeResult:
-        danger_badge = " [red][!][/red]" if self.dangerous else ""
+        danger_badge = " [red]![/red]" if self.dangerous else ""
         yield Label(f"  {self.title}{danger_badge}")
     
     def on_click(self, event: events.Click) -> None:
@@ -211,18 +211,18 @@ class ActionItem(Static):
         self._selected = True
         self.add_class("selected")
         label = self.query_one(Label)
-        danger_badge = " [red][!][/red]" if self.dangerous else ""
+        danger_badge = " [red]![/red]" if self.dangerous else ""
         label.update(f"❯ {self.title}{danger_badge}")
     
     def deselect(self) -> None:
         self._selected = False
         self.remove_class("selected")
         label = self.query_one(Label)
-        danger_badge = " [red][!][/red]" if self.dangerous else ""
+        danger_badge = " [red]![/red]" if self.dangerous else ""
         label.update(f"  {self.title}{danger_badge}")
 
 
-class ActionList(Static):
+class ActionList(Static, can_focus=True):
     """Widget for displaying and selecting actions in a category."""
     
     class ActionExecute(Message):
@@ -333,11 +333,16 @@ class Spinner(Static):
         self._spinning = False
         self.update("")
     
+    def stop_success(self) -> None:
+        """Stop the spinner and show a green checkmark."""
+        self._spinning = False
+        self.update("[green]✓[/green]")
+    
     def _update(self) -> None:
         """Update the spinner frame."""
         if self._spinning:
             frame = self.SPINNER_FRAMES[self._frame_index % len(self.SPINNER_FRAMES)]
-            self.update(f"[cyan]{frame}[/cyan] Executing...")
+            self.update(f"[cyan]{frame}[/cyan]")
             self._frame_index += 1
             self.set_timer(0.1, self._update)
 
@@ -377,6 +382,7 @@ class ManageApp(App):
     #content-area {
         width: 100%;
         height: 1fr;
+        layout: horizontal;
     }
     
     #action-panel {
@@ -390,6 +396,10 @@ class ManageApp(App):
         width: 1fr;
         border: solid $primary;
         padding: 0 1;
+    }
+    
+    #output-content {
+        height: 1fr;
     }
     
     .action-item {
@@ -408,7 +418,6 @@ class ManageApp(App):
     
     #description-box {
         height: 5;
-        border-top: solid $primary;
         padding: 1;
     }
     
@@ -425,18 +434,26 @@ class ManageApp(App):
         padding: 1 0;
     }
     
-    TabbedContent {
-        height: 100%;
+    #tabs-header {
+        height: auto;
+        layout: horizontal;
+    }
+    
+    #output-panel TabbedContent {
+        width: 1fr;
+        height: auto;
     }
     
     TabPane {
         padding: 0;
+        height: 0;
     }
     
     #spinner {
-        height: 1;
-        text-align: left;
+        height: auto;
+        text-align: right;
         padding: 0 1;
+        width: auto;
     }
     
     #output-log {
@@ -456,6 +473,8 @@ class ManageApp(App):
         Binding("q", "quit", "Quit"),
         Binding("up,k", "navigate_up", "Up", show=False),
         Binding("down,j", "navigate_down", "Down", show=False),
+        Binding("left,h", "prev_tab", "Prev Tab", show=False),
+        Binding("right,l", "next_tab", "Next Tab", show=False),
         Binding("enter", "execute_action", "Execute"),
         Binding("tab", "next_tab", "Next Tab"),
         Binding("shift+tab", "prev_tab", "Prev Tab"),
@@ -503,21 +522,32 @@ class ManageApp(App):
                 id="machine-selector"
             )
             
-            with TabbedContent(id="tabs"):
-                for tab_id, tab_name, tab_icon in TABS:
-                    with TabPane(f"{tab_icon} {tab_name}", id=f"tab-{tab_id}"):
-                        with Horizontal(id="content-area"):
-                            with Vertical(id="action-panel"):
-                                yield ActionList(tab_id, id=f"actions-{tab_id}")
-                                
-                                yield Static(
-                                    "Select an action to see its description",
-                                    id="description-box"
-                                )
-                            
-                            with Vertical(id="output-panel"):
-                                yield Spinner(id="spinner")
-                                yield OutputLog(id="output-log", highlight=True)
+            # Horizontal layout: actions on left, tabs/output on right
+            with Horizontal(id="content-area"):
+                # Left side: Action panel (changes based on tab selection)
+                with Vertical(id="action-panel"):
+                    # We'll dynamically update this based on tab selection
+                    yield ActionList("nixos", id="actions-current")
+                    
+                    yield Static(
+                        "Select an action to see its description",
+                        id="description-box"
+                    )
+                
+                # Right side: Tabs and output panel
+                with Vertical(id="output-panel"):
+                    # Top row: Tabs on left, spinner on right
+                    with Horizontal(id="tabs-header"):
+                        with TabbedContent(id="tabs"):
+                            for tab_id, tab_name, tab_icon in TABS:
+                                with TabPane(f"{tab_icon} {tab_name}", id=f"tab-{tab_id}"):
+                                    # Empty pane - tabs are just for selection
+                                    yield Static("")
+                        yield Spinner(id="spinner")
+                    
+                    # Output below tabs
+                    with Vertical(id="output-content"):
+                        yield OutputLog(id="output-log", highlight=True)
         
         yield Footer()
     
@@ -526,11 +556,22 @@ class ManageApp(App):
         self._update_description()
         output_log = self.query_one("#output-log", OutputLog)
         output_log.write_line("Ready. Select an action and press Enter to execute.\n")
+        # Set focus on the action list so arrow keys work immediately
+        # Use call_after_refresh to ensure the widget is fully mounted
+        self.call_after_refresh(self._set_initial_focus)
+    
+    def _set_initial_focus(self) -> None:
+        """Set focus on the action list after app is fully mounted."""
+        try:
+            action_list = self.query_one("#actions-current", ActionList)
+            self.set_focus(action_list)
+        except Exception:
+            pass
     
     def _get_current_action_list(self) -> Optional[ActionList]:
         """Get the ActionList for the current tab."""
         try:
-            return self.query_one(f"#actions-{self.current_tab}", ActionList)
+            return self.query_one("#actions-current", ActionList)
         except Exception:
             return None
     
@@ -553,6 +594,27 @@ class ManageApp(App):
         """Handle tab change."""
         tab_id = event.pane.id.replace("tab-", "")
         self.current_tab = tab_id
+        
+        # Update the action list to show actions for the new tab
+        action_panel = self.query_one("#action-panel", Vertical)
+        
+        # Try to find and remove existing action list
+        try:
+            current_action_list = action_panel.query_one("#actions-current", ActionList)
+            current_action_list.remove()
+            # Schedule mounting new list after removal completes
+            self.call_after_refresh(self._mount_new_action_list, tab_id)
+        except Exception:
+            # No existing action list, mount immediately
+            self._mount_new_action_list(tab_id)
+    
+    def _mount_new_action_list(self, tab_id: str) -> None:
+        """Mount a new action list for the given tab."""
+        action_panel = self.query_one("#action-panel", Vertical)
+        new_action_list = ActionList(tab_id, id="actions-current")
+        action_panel.mount(new_action_list)
+        # Set focus on the new action list after it's fully mounted
+        self.call_after_refresh(lambda: self.set_focus(new_action_list))
         self._update_description()
     
     def action_navigate_up(self) -> None:
@@ -568,12 +630,32 @@ class ManageApp(App):
             self._update_description()
     
     def action_next_tab(self) -> None:
-        tabs = self.query_one("#tabs", TabbedContent)
-        tabs.action_next_tab()
+        """Switch to the next tab."""
+        current_index = self._get_current_tab_index()
+        if current_index is not None and current_index < len(TABS) - 1:
+            self._switch_to_tab(current_index + 1)
+        elif current_index == len(TABS) - 1:
+            # Wrap around to first tab
+            self._switch_to_tab(0)
     
     def action_prev_tab(self) -> None:
-        tabs = self.query_one("#tabs", TabbedContent)
-        tabs.action_previous_tab()
+        """Switch to the previous tab."""
+        current_index = self._get_current_tab_index()
+        if current_index is not None and current_index > 0:
+            self._switch_to_tab(current_index - 1)
+        elif current_index == 0:
+            # Wrap around to last tab
+            self._switch_to_tab(len(TABS) - 1)
+    
+    def _get_current_tab_index(self) -> Optional[int]:
+        """Get the index of the currently active tab."""
+        try:
+            for idx, (tab_id, _, _) in enumerate(TABS):
+                if tab_id == self.current_tab:
+                    return idx
+        except Exception:
+            pass
+        return 0  # Default to first tab
     
     def action_tab_1(self) -> None:
         self._switch_to_tab(0)
@@ -832,41 +914,39 @@ class ManageApp(App):
         
         # Virtual Machine commands
         elif action_id == "vm-list":
-            self._run_streaming(["virsh", "list"], output_log)
+            # Check if virsh is available first
+            if not shutil.which("virsh"):
+                output_log.write_line("Error: virsh command not found.\n")
+                output_log.write_line("Make sure libvirt is installed: nix-shell -p libvirt\n")
+                spinner = self.query_one("#spinner", Spinner)
+                spinner.stop()
+            else:
+                self._run_streaming(["virsh", "list"], output_log)
         elif action_id == "vm-list-all":
-            self._run_streaming(["virsh", "list", "--all"], output_log)
+            # Check if virsh is available first
+            if not shutil.which("virsh"):
+                output_log.write_line("Error: virsh command not found.\n")
+                output_log.write_line("Make sure libvirt is installed: nix-shell -p libvirt\n")
+                spinner = self.query_one("#spinner", Spinner)
+                spinner.stop()
+            else:
+                self._run_streaming(["virsh", "list", "--all"], output_log)
         elif action_id == "vm-info":
-            output_log.write_line("Please specify a VM name. Use 'vm-list' to see available VMs.\n")
-            spinner = self.query_one("#spinner", Spinner)
-            spinner.stop()
+            self._vm_info_helper(output_log)
         elif action_id == "vm-start":
-            output_log.write_line("Please specify a VM name. Use 'vm-list-all' to see available VMs.\n")
-            spinner = self.query_one("#spinner", Spinner)
-            spinner.stop()
+            self._vm_start_helper(output_log)
         elif action_id == "vm-shutdown":
-            output_log.write_line("Please specify a VM name. Use 'vm-list' to see running VMs.\n")
-            spinner = self.query_one("#spinner", Spinner)
-            spinner.stop()
+            self._vm_shutdown_helper(output_log)
         elif action_id == "vm-reboot":
-            output_log.write_line("Please specify a VM name. Use 'vm-list' to see running VMs.\n")
-            spinner = self.query_one("#spinner", Spinner)
-            spinner.stop()
+            self._vm_reboot_helper(output_log)
         elif action_id == "vm-force-stop":
-            output_log.write_line("Please specify a VM name. Use 'vm-list' to see running VMs.\n")
-            spinner = self.query_one("#spinner", Spinner)
-            spinner.stop()
+            self._vm_force_stop_helper(output_log)
         elif action_id == "vm-suspend":
-            output_log.write_line("Please specify a VM name. Use 'vm-list' to see running VMs.\n")
-            spinner = self.query_one("#spinner", Spinner)
-            spinner.stop()
+            self._vm_suspend_helper(output_log)
         elif action_id == "vm-resume":
-            output_log.write_line("Please specify a VM name. Use 'vm-list-all' to see available VMs.\n")
-            spinner = self.query_one("#spinner", Spinner)
-            spinner.stop()
+            self._vm_resume_helper(output_log)
         elif action_id == "vm-console":
-            output_log.write_line("Please specify a VM name. Use 'vm-list' to see running VMs.\n")
-            spinner = self.query_one("#spinner", Spinner)
-            spinner.stop()
+            self._vm_console_helper(output_log)
         elif action_id == "vm-stats":
             self._run_vm_stats(output_log)
         elif action_id == "vm-networks":
@@ -918,17 +998,16 @@ class ManageApp(App):
                 
                 process.wait()
                 
-                # Stop spinner
-                spinner = self.query_one("#spinner", Spinner)
-                self.call_from_thread(spinner.stop)
-                
                 self.call_from_thread(output_log.write_line, "\n" + "-" * 60 + "\n")
+                
+                # Stop spinner and show success/failure indicator
+                spinner = self.query_one("#spinner", Spinner)
                 if process.returncode == 0:
+                    self.call_from_thread(spinner.stop_success)
                     if not output_received:
                         self.call_from_thread(output_log.write_line, "Command completed (no output)\n")
-                    else:
-                        self.call_from_thread(output_log.write_line, "✓ Command completed successfully\n")
                 else:
+                    self.call_from_thread(spinner.stop)
                     self.call_from_thread(output_log.write_line, f"✗ Command failed with exit code {process.returncode}\n")
                     if not output_received:
                         self.call_from_thread(output_log.write_line, "No output was produced. The command may have failed silently.\n")
@@ -985,7 +1064,7 @@ class ManageApp(App):
             output_log.write_line(f"  💻 {machine} {status}\n")
         output_log.write_line("\n" + "-" * 60 + "\n")
         spinner = self.query_one("#spinner", Spinner)
-        spinner.stop()
+        spinner.stop_success()
     
     def _run_health_check(self, output_log: OutputLog) -> None:
         """Run system health check."""
@@ -1014,9 +1093,8 @@ class ManageApp(App):
             output_log.write_line(result.stdout)
             
             output_log.write_line("\n" + "-" * 60 + "\n")
-            output_log.write_line("✓ Health check completed\n")
             spinner = self.query_one("#spinner", Spinner)
-            spinner.stop()
+            spinner.stop_success()
     
     def _run_system_info(self, output_log: OutputLog) -> None:
         """Display system information."""
@@ -1057,14 +1135,19 @@ class ManageApp(App):
         
         # Uptime
         try:
-            uptime = subprocess.check_output(["uptime", "-p"], text=True).strip()
+            # Try pretty format first (GNU/Linux), fallback to standard format
+            try:
+                uptime = subprocess.check_output(["uptime", "-p"], text=True, stderr=subprocess.DEVNULL).strip()
+            except (subprocess.CalledProcessError, FileNotFoundError):
+                # Fallback to standard uptime format
+                uptime = subprocess.check_output(["uptime"], text=True).strip()
             output_log.write_line(f"  Uptime: {uptime}\n")
         except:
             pass
         
         output_log.write_line("\n" + "-" * 60 + "\n")
         spinner = self.query_one("#spinner", Spinner)
-        spinner.stop()
+        spinner.stop_success()
     
     def _run_ping_test(self, output_log: OutputLog) -> None:
         """Run ping tests to common endpoints."""
@@ -1097,7 +1180,7 @@ class ManageApp(App):
         
         output_log.write_line("\n" + "-" * 60 + "\n")
         spinner = self.query_one("#spinner", Spinner)
-        spinner.stop()
+        spinner.stop_success()
     
     def _run_dns_test(self, output_log: OutputLog) -> None:
         """Run DNS resolution tests."""
@@ -1124,7 +1207,7 @@ class ManageApp(App):
         
         output_log.write_line("\n" + "-" * 60 + "\n")
         spinner = self.query_one("#spinner", Spinner)
-        spinner.stop()
+        spinner.stop_success()
     
     def _run_smart_status(self, output_log: OutputLog) -> None:
         """Check SMART status of drives."""
@@ -1165,21 +1248,227 @@ class ManageApp(App):
         
         output_log.write_line("\n" + "-" * 60 + "\n")
     
+    def _get_vm_list(self, all_vms: bool = False) -> List[str]:
+        """Get list of VMs. Returns empty list if virsh is not available."""
+        if not shutil.which("virsh"):
+            return []
+        try:
+            cmd = ["virsh", "list", "--name"]
+            if all_vms:
+                cmd.append("--all")
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                return [vm.strip() for vm in result.stdout.strip().split("\n") if vm.strip()]
+        except (FileNotFoundError, subprocess.TimeoutExpired, Exception):
+            pass
+        return []
+    
+    def _get_running_vms(self) -> List[str]:
+        """Get list of running VMs."""
+        if not shutil.which("virsh"):
+            return []
+        try:
+            result = subprocess.run(
+                ["virsh", "list", "--name"],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                return [vm.strip() for vm in result.stdout.strip().split("\n") if vm.strip()]
+        except (FileNotFoundError, subprocess.TimeoutExpired, Exception):
+            pass
+        return []
+    
+    def _vm_info_helper(self, output_log: OutputLog) -> None:
+        """Show VM info - lists all VMs and their details."""
+        if not shutil.which("virsh"):
+            output_log.write_line("Error: virsh command not found.\n")
+            output_log.write_line("Make sure libvirt is installed: nix-shell -p libvirt\n")
+            spinner = self.query_one("#spinner", Spinner)
+            spinner.stop()
+            return
+        
+        output_log.write_line("VM Information:\n\n")
+        vms = self._get_vm_list(all_vms=True)
+        if vms:
+            for vm in vms:
+                output_log.write_line(f"VM: {vm}\n")
+                output_log.write_line("-" * 40 + "\n")
+                try:
+                    result = subprocess.run(
+                        ["virsh", "dominfo", vm],
+                        capture_output=True,
+                        text=True,
+                        timeout=5
+                    )
+                    if result.returncode == 0:
+                        output_log.write_line(result.stdout)
+                    else:
+                        output_log.write_line(f"Error getting info for {vm}: {result.stderr}\n")
+                except Exception as e:
+                    output_log.write_line(f"Error: {e}\n")
+                output_log.write_line("\n")
+            spinner = self.query_one("#spinner", Spinner)
+            spinner.stop()
+        else:
+            output_log.write_line("No VMs found. Use 'vm-list-all' to see all VMs.\n")
+            output_log.write_line("Make sure libvirt is installed and VMs are defined.\n")
+            spinner = self.query_one("#spinner", Spinner)
+            spinner.stop()
+    
+    def _vm_start_helper(self, output_log: OutputLog) -> None:
+        """Start VMs - attempts to start all stopped VMs."""
+        output_log.write_line("Starting stopped VMs...\n\n")
+        all_vms = self._get_vm_list(all_vms=True)
+        running_vms = self._get_running_vms()
+        stopped_vms = [vm for vm in all_vms if vm not in running_vms]
+        
+        if stopped_vms:
+            for vm in stopped_vms:
+                output_log.write_line(f"Starting {vm}...\n")
+                self._run_streaming(["virsh", "start", vm], output_log)
+                output_log.write_line("\n")
+        else:
+            output_log.write_line("No stopped VMs found.\n")
+            spinner = self.query_one("#spinner", Spinner)
+            spinner.stop()
+    
+    def _vm_shutdown_helper(self, output_log: OutputLog) -> None:
+        """Shutdown VMs - gracefully shuts down all running VMs."""
+        output_log.write_line("Shutting down running VMs...\n\n")
+        running_vms = self._get_running_vms()
+        
+        if running_vms:
+            for vm in running_vms:
+                output_log.write_line(f"Shutting down {vm}...\n")
+                self._run_streaming(["virsh", "shutdown", vm], output_log)
+                output_log.write_line("\n")
+        else:
+            output_log.write_line("No running VMs found.\n")
+            spinner = self.query_one("#spinner", Spinner)
+            spinner.stop()
+    
+    def _vm_reboot_helper(self, output_log: OutputLog) -> None:
+        """Reboot VMs - reboots all running VMs."""
+        output_log.write_line("Rebooting running VMs...\n\n")
+        running_vms = self._get_running_vms()
+        
+        if running_vms:
+            for vm in running_vms:
+                output_log.write_line(f"Rebooting {vm}...\n")
+                self._run_streaming(["virsh", "reboot", vm], output_log)
+                output_log.write_line("\n")
+        else:
+            output_log.write_line("No running VMs found.\n")
+            spinner = self.query_one("#spinner", Spinner)
+            spinner.stop()
+    
+    def _vm_force_stop_helper(self, output_log: OutputLog) -> None:
+        """Force stop VMs - force stops all running VMs (dangerous)."""
+        output_log.write_line("⚠️  WARNING: Force stop is dangerous and may cause data loss!\n\n")
+        running_vms = self._get_running_vms()
+        
+        if running_vms:
+            output_log.write_line("Force stopping running VMs...\n\n")
+            for vm in running_vms:
+                output_log.write_line(f"Force stopping {vm}...\n")
+                self._run_streaming(["virsh", "destroy", vm], output_log)
+                output_log.write_line("\n")
+        else:
+            output_log.write_line("No running VMs found.\n")
+            spinner = self.query_one("#spinner", Spinner)
+            spinner.stop()
+    
+    def _vm_suspend_helper(self, output_log: OutputLog) -> None:
+        """Suspend VMs - suspends all running VMs."""
+        output_log.write_line("Suspending running VMs...\n\n")
+        running_vms = self._get_running_vms()
+        
+        if running_vms:
+            for vm in running_vms:
+                output_log.write_line(f"Suspending {vm}...\n")
+                self._run_streaming(["virsh", "suspend", vm], output_log)
+                output_log.write_line("\n")
+        else:
+            output_log.write_line("No running VMs found.\n")
+            spinner = self.query_one("#spinner", Spinner)
+            spinner.stop()
+    
+    def _vm_resume_helper(self, output_log: OutputLog) -> None:
+        """Resume VMs - resumes all suspended VMs."""
+        output_log.write_line("Resuming suspended VMs...\n\n")
+        all_vms = self._get_vm_list(all_vms=True)
+        running_vms = self._get_running_vms()
+        
+        # Try to detect suspended VMs by checking their state
+        suspended_vms = []
+        for vm in all_vms:
+            if vm not in running_vms:
+                try:
+                    result = subprocess.run(
+                        ["virsh", "dominfo", vm],
+                        capture_output=True,
+                        text=True,
+                        timeout=2
+                    )
+                    if result.returncode == 0:
+                        if "paused" in result.stdout.lower() or "suspended" in result.stdout.lower():
+                            suspended_vms.append(vm)
+                except:
+                    pass
+        
+        if suspended_vms:
+            for vm in suspended_vms:
+                output_log.write_line(f"Resuming {vm}...\n")
+                self._run_streaming(["virsh", "resume", vm], output_log)
+                output_log.write_line("\n")
+        else:
+            output_log.write_line("No suspended VMs found.\n")
+            stopped_vms = [vm for vm in all_vms if vm not in running_vms]
+            if stopped_vms:
+                output_log.write_line("Stopped VMs (use 'vm-start' to start them):\n")
+                for vm in stopped_vms:
+                    output_log.write_line(f"  - {vm}\n")
+            spinner = self.query_one("#spinner", Spinner)
+            spinner.stop()
+    
+    def _vm_console_helper(self, output_log: OutputLog) -> None:
+        """VM Console - shows running VMs (console is interactive, so instructions only)."""
+        if not shutil.which("virsh"):
+            output_log.write_line("Error: virsh command not found.\n")
+            output_log.write_line("Make sure libvirt is installed: nix-shell -p libvirt\n")
+            spinner = self.query_one("#spinner", Spinner)
+            spinner.stop()
+            return
+        
+        output_log.write_line("Running VMs:\n\n")
+        running_vms = self._get_running_vms()
+        
+        if running_vms:
+            output_log.write_line("To open console for a VM, run from terminal:\n")
+            for vm in running_vms:
+                output_log.write_line(f"  virsh console {vm}\n")
+            output_log.write_line("\nNote: Console access requires the VM to be configured for serial console.\n")
+            output_log.write_line("Console is interactive and cannot be opened from this TUI.\n")
+        else:
+            output_log.write_line("No running VMs found.\n")
+        spinner = self.query_one("#spinner", Spinner)
+        spinner.stop()
+    
     def _run_vm_stats(self, output_log: OutputLog) -> None:
         """Show resource usage statistics for VMs."""
         output_log.write_line("VM Resource Statistics:\n\n")
         
         try:
-            # Get list of running VMs
-            result = subprocess.run(
-                ["virsh", "list", "--name"],
-                capture_output=True,
-                text=True
-            )
+            vms = self._get_running_vms()
             
-            if result.returncode == 0 and result.stdout.strip():
-                vms = [vm.strip() for vm in result.stdout.strip().split("\n") if vm.strip()]
-                
+            if vms:
                 for vm in vms:
                     output_log.write_line(f"  {vm}:\n")
                     try:
@@ -1206,7 +1495,7 @@ class ManageApp(App):
         
         output_log.write_line("\n" + "-" * 60 + "\n")
         spinner = self.query_one("#spinner", Spinner)
-        spinner.stop()
+        spinner.stop_success()
 
 
 # =============================================================================

@@ -144,17 +144,6 @@
     dedicatedServer.openFirewall = true;
   };
 
-  # VSCode
-  programs.vscode = {
-    enable = true;
-    extensions = with pkgs.vscode-extensions; [
-      continue.continue
-      ms-python.python
-      jnoortheen.nix-ide
-      ms-azuretools.vscode-docker
-    ];
-  };
-
   # Virtualization
   virtualisation.libvirtd = {
     enable = true;
@@ -232,6 +221,7 @@
     gzdoom
     ventoy
     vlc
+    vscode-fhs
     wine
     zoom-us
   ];
