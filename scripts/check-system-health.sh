@@ -100,7 +100,14 @@ esac
 # Check all enabled services for failures
 echo ""
 echo "Checking for failed services..."
-FAILED_SERVICES=$(systemctl list-units --state=failed --no-legend 2>/dev/null | awk '{print $1}' || true)
+FAILED_SERVICES=$(systemctl list-units --state=failed --no-legend 2>/dev/null | awk '{
+    for (i=1; i<=NF; i++) {
+        if ($i ~ /\.(service|socket|target|timer)$/) {
+            print $i
+            break
+        }
+    }
+}' || true)
 if [ -z "$FAILED_SERVICES" ]; then
     print_status "OK" "No failed services"
 else
