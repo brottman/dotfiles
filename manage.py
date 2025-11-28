@@ -1174,6 +1174,125 @@ class OutputLog(Log):
 
 
 # =============================================================================
+# Help Screen
+# =============================================================================
+
+class HelpScreen(ModalScreen):
+    """Help screen showing keyboard shortcuts and usage information."""
+    
+    CSS = """
+    HelpScreen {
+        align: center middle;
+    }
+    
+    #help-container {
+        width: 90;
+        height: 90%;
+        border: solid $primary;
+        background: $surface;
+        padding: 1;
+    }
+    
+    .help-title {
+        text-align: center;
+        text-style: bold;
+        padding: 1;
+        border-bottom: solid $primary;
+        height: 3;
+    }
+    
+    .help-section {
+        padding: 1 0;
+        border-bottom: solid $border;
+    }
+    
+    .help-section-title {
+        text-style: bold;
+        color: $primary;
+        padding: 0 0 1 0;
+    }
+    
+    .help-shortcut {
+        padding: 0 2;
+    }
+    
+    .help-key {
+        text-style: bold;
+        color: $accent;
+    }
+    
+    .help-description {
+        padding: 0 4;
+    }
+    """
+    
+    BINDINGS = [
+        Binding("q,escape", "dismiss", "Close", priority=True),
+    ]
+    
+    def compose(self) -> ComposeResult:
+        with Container(id="help-container"):
+            yield Static("Keyboard Shortcuts - Help", classes="help-title")
+            
+            with ScrollableContainer():
+                # Navigation
+                with Vertical(classes="help-section"):
+                    yield Static("Navigation", classes="help-section-title")
+                    yield Static("[bold]↑/k[/bold] - Move up", classes="help-shortcut")
+                    yield Static("[bold]↓/j[/bold] - Move down", classes="help-shortcut")
+                    yield Static("[bold]Tab[/bold] - Next tab", classes="help-shortcut")
+                    yield Static("[bold]Shift+Tab[/bold] - Previous tab", classes="help-shortcut")
+                    yield Static("[bold]←/→[/bold] or [bold]h/l[/bold] - Navigate tabs", classes="help-shortcut")
+                    yield Static("[bold]1-8[/bold] - Jump to tab (System, NixOS, Docker, etc.)", classes="help-shortcut")
+                
+                # Actions
+                with Vertical(classes="help-section"):
+                    yield Static("Actions", classes="help-section-title")
+                    yield Static("[bold]Enter[/bold] - Execute selected action", classes="help-shortcut")
+                    yield Static("[bold]m[/bold] - Cycle through machines", classes="help-shortcut")
+                    yield Static("[bold]r[/bold] - Repeat last command", classes="help-shortcut")
+                    yield Static("[bold]c[/bold] - Clear output", classes="help-shortcut")
+                    yield Static("[bold]Ctrl+C[/bold] - Cancel running command", classes="help-shortcut")
+                
+                # Search & History
+                with Vertical(classes="help-section"):
+                    yield Static("Search & History", classes="help-section-title")
+                    yield Static("[bold]/[/bold] - Focus search input", classes="help-shortcut")
+                    yield Static("[bold]Esc[/bold] - Clear search", classes="help-shortcut")
+                    yield Static("[bold]h[/bold] - Show command history", classes="help-shortcut")
+                
+                # Help & System
+                with Vertical(classes="help-section"):
+                    yield Static("Help & System", classes="help-section-title")
+                    yield Static("[bold]?[/bold] or [bold]F1[/bold] - Show this help screen", classes="help-shortcut")
+                    yield Static("[bold]q[/bold] - Quit application", classes="help-shortcut")
+                
+                # Tips
+                with Vertical(classes="help-section"):
+                    yield Static("Tips", classes="help-section-title")
+                    yield Static("• Actions marked with ⚠ require confirmation (press Enter twice)", classes="help-description")
+                    yield Static("• Use search (/) to quickly find actions by name or description", classes="help-description")
+                    yield Static("• Press 'r' to quickly repeat the last executed command", classes="help-description")
+                    yield Static("• Machine-specific actions require selecting a machine first (press 'm')", classes="help-description")
+                    yield Static("• Progress bars appear for multi-step operations", classes="help-description")
+                    yield Static("• Use 'h' to view command history and re-execute previous commands", classes="help-description")
+                
+                # Context Help
+                with Vertical(classes="help-section"):
+                    yield Static("Context-Sensitive Help", classes="help-section-title")
+                    yield Static("• When a command is running, press 's' to show status", classes="help-description")
+                    yield Static("• When viewing history, use arrow keys to navigate", classes="help-description")
+                    yield Static("• In search mode, type to filter actions in real-time", classes="help-description")
+                    yield Static("• Dangerous actions show a warning and require double confirmation", classes="help-description")
+            
+            yield Static("Press [bold]q[/bold] or [bold]Esc[/bold] to close", classes="help-section-title")
+    
+    def action_dismiss(self) -> None:
+        """Close the help screen."""
+        self.dismiss()
+
+
+# =============================================================================
 # VM Creation Wizard
 # =============================================================================
 
@@ -2173,6 +2292,7 @@ class ManageApp(App):
         Binding("r", "repeat_last_command", "Repeat Last"),
         Binding("/", "focus_search", "Search"),
         Binding("escape", "clear_search", "Clear Search", show=False),
+        Binding("?,f1", "show_help", "Help"),
     ]
     
     current_tab = reactive("system")
@@ -3345,6 +3465,10 @@ class ManageApp(App):
         """Update the status of the last history entry."""
         if self._command_history:
             self._command_history[-1].status = status
+    
+    def action_show_help(self) -> None:
+        """Show the help screen."""
+        self.push_screen(HelpScreen())
     
     def action_show_history(self) -> None:
         """Show command history in output log."""
