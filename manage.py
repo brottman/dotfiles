@@ -270,6 +270,155 @@ MACHINES = ["brian-laptop", "superheavy", "docker", "backup"]
 
 
 # =============================================================================
+# Command Executor
+# =============================================================================
+
+class CommandExecutor:
+    """
+    Handles command execution, output streaming, and error handling.
+    Separates execution logic from UI concerns.
+    """
+    
+    def __init__(self, working_dir: Path, 
+                 output_callback: Optional[Callable[[str], None]] = None,
+                 spinner_callback: Optional[Callable[[str], None]] = None):
+        """
+        Initialize CommandExecutor.
+        
+        Args:
+            working_dir: Working directory for command execution
+            output_callback: Callback function for output lines (str -> None)
+            spinner_callback: Callback function for spinner control ('start'|'stop'|'stop_success')
+        """
+        self.working_dir = working_dir
+        self.output_callback = output_callback or (lambda x: None)
+        self.spinner_callback = spinner_callback or (lambda x: None)
+    
+    def execute(self, cmd: List[str], shell: bool = False, timeout: Optional[int] = None) -> int:
+        """
+        Execute a command and stream output.
+        
+        Args:
+            cmd: Command to execute as list of strings
+            shell: Whether to execute in shell
+            timeout: Optional timeout in seconds
+            
+        Returns:
+            Exit code of the command
+        """
+        try:
+            # Log the command being executed
+            cmd_str = " ".join(cmd) if isinstance(cmd, list) else str(cmd)
+            self.output_callback(f"Running: {cmd_str}\n\n")
+            
+            if shell:
+                cmd_str = " ".join(cmd) if isinstance(cmd, list) else str(cmd)
+                process = subprocess.Popen(
+                    cmd_str,
+                    shell=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    cwd=self.working_dir,
+                    text=True,
+                    bufsize=1
+                )
+            else:
+                process = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    cwd=self.working_dir,
+                    text=True,
+                    bufsize=1
+                )
+            
+            # Read output line by line
+            output_received = False
+            try:
+                for line in process.stdout:
+                    output_received = True
+                    self.output_callback(line)
+                
+                process.wait(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+                self.output_callback(f"\n✗ Command timed out after {timeout} seconds\n")
+                self.spinner_callback("stop")
+                return 124  # Standard timeout exit code
+            
+            self.output_callback("\n" + "-" * 60 + "\n")
+            
+            # Handle success/failure
+            if process.returncode == 0:
+                self.spinner_callback("stop_success")
+                if not output_received:
+                    self.output_callback("Command completed (no output)\n")
+            else:
+                self.spinner_callback("stop")
+                self.output_callback(f"✗ Command failed with exit code {process.returncode}\n")
+                if not output_received:
+                    self.output_callback("No output was produced. The command may have failed silently.\n")
+            
+            return process.returncode
+            
+        except FileNotFoundError:
+            self.spinner_callback("stop")
+            cmd_name = cmd[0] if isinstance(cmd, list) and len(cmd) > 0 else str(cmd)
+            self.output_callback(f"✗ Error: Command not found: {cmd_name}\n")
+            self.output_callback("Make sure the command is installed and available in PATH.\n")
+            return 127  # Standard "command not found" exit code
+        except Exception as e:
+            self.spinner_callback("stop")
+            self.output_callback(f"✗ Error executing command: {e}\n")
+            import traceback
+            self.output_callback(f"Traceback:\n{traceback.format_exc()}\n")
+            return 1
+    
+    def execute_async(self, cmd: List[str], shell: bool = False, 
+                     timeout: Optional[int] = None) -> threading.Thread:
+        """
+        Execute a command asynchronously in a separate thread.
+        
+        Args:
+            cmd: Command to execute
+            shell: Whether to execute in shell
+            timeout: Optional timeout in seconds
+            
+        Returns:
+            Thread object (already started)
+        """
+        def run_in_thread():
+            self.execute(cmd, shell=shell, timeout=timeout)
+        
+        thread = threading.Thread(target=run_in_thread, daemon=True)
+        thread.start()
+        return thread
+    
+    def run_sync(self, cmd: List[str], capture_output: bool = True, 
+                timeout: Optional[int] = None) -> subprocess.CompletedProcess:
+        """
+        Run a command synchronously and return the result.
+        Useful for commands that need their output captured.
+        
+        Args:
+            cmd: Command to execute
+            capture_output: Whether to capture stdout/stderr
+            timeout: Optional timeout in seconds
+            
+        Returns:
+            CompletedProcess object
+        """
+        return subprocess.run(
+            cmd,
+            cwd=self.working_dir,
+            capture_output=capture_output,
+            text=True,
+            timeout=timeout
+        )
+
+
+# =============================================================================
 # Command Registry
 # =============================================================================
 
@@ -1438,7 +1587,30 @@ class ManageApp(App):
         
         # Initialize command registry
         self._command_registry = CommandRegistry()
+        
+        # Initialize command executor
+        self._command_executor = CommandExecutor(
+            working_dir=self.flake_path,
+            output_callback=self._output_callback,
+            spinner_callback=self._spinner_callback
+        )
+        
         self._register_commands()
+    
+    def _output_callback(self, line: str) -> None:
+        """Callback for command output - thread-safe wrapper."""
+        output_log = self.query_one("#output-log", OutputLog)
+        self.call_from_thread(output_log.write_line, line)
+    
+    def _spinner_callback(self, action: str) -> None:
+        """Callback for spinner control - thread-safe wrapper."""
+        spinner = self.query_one("#spinner", Spinner)
+        if action == "start":
+            self.call_from_thread(spinner.start)
+        elif action == "stop":
+            self.call_from_thread(spinner.stop)
+        elif action == "stop_success":
+            self.call_from_thread(spinner.stop_success)
     
     def _detect_current_machine(self) -> Optional[str]:
         """Detect the current machine from hostname."""
@@ -1995,71 +2167,13 @@ class ManageApp(App):
         self.push_screen(RelaunchPrompt())
     
     def _run_streaming(self, cmd: List[str], output_log: OutputLog, shell: bool = False) -> None:
-        """Run a command and stream output to the log."""
-        def run_in_thread():
-            try:
-                # Log the command being executed
-                cmd_str = " ".join(cmd) if isinstance(cmd, list) else str(cmd)
-                self.call_from_thread(output_log.write_line, f"Running: {cmd_str}\n\n")
-                
-                if shell:
-                    cmd_str = " ".join(cmd) if isinstance(cmd, list) else str(cmd)
-                    process = subprocess.Popen(
-                        cmd_str,
-                        shell=True,
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.STDOUT,
-                        cwd=self.flake_path,
-                        text=True,
-                        bufsize=1
-                    )
-                else:
-                    process = subprocess.Popen(
-                        cmd,
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.STDOUT,
-                        cwd=self.flake_path,
-                        text=True,
-                        bufsize=1
-                    )
-                
-                # Read output line by line
-                output_received = False
-                for line in process.stdout:
-                    output_received = True
-                    self.call_from_thread(output_log.write_line, line)
-                
-                process.wait()
-                
-                self.call_from_thread(output_log.write_line, "\n" + "-" * 60 + "\n")
-                
-                # Stop spinner and show success/failure indicator
-                spinner = self.query_one("#spinner", Spinner)
-                if process.returncode == 0:
-                    self.call_from_thread(spinner.stop_success)
-                    if not output_received:
-                        self.call_from_thread(output_log.write_line, "Command completed (no output)\n")
-                else:
-                    self.call_from_thread(spinner.stop)
-                    self.call_from_thread(output_log.write_line, f"✗ Command failed with exit code {process.returncode}\n")
-                    if not output_received:
-                        self.call_from_thread(output_log.write_line, "No output was produced. The command may have failed silently.\n")
-                
-            except FileNotFoundError:
-                spinner = self.query_one("#spinner", Spinner)
-                self.call_from_thread(spinner.stop)
-                cmd_name = cmd[0] if isinstance(cmd, list) and len(cmd) > 0 else str(cmd)
-                self.call_from_thread(output_log.write_line, f"✗ Error: Command not found: {cmd_name}\n")
-                self.call_from_thread(output_log.write_line, "Make sure the command is installed and available in PATH.\n")
-            except Exception as e:
-                spinner = self.query_one("#spinner", Spinner)
-                self.call_from_thread(spinner.stop)
-                self.call_from_thread(output_log.write_line, f"✗ Error executing command: {e}\n")
-                import traceback
-                self.call_from_thread(output_log.write_line, f"Traceback:\n{traceback.format_exc()}\n")
+        """Run a command and stream output to the log using CommandExecutor."""
+        # Start spinner
+        spinner = self.query_one("#spinner", Spinner)
+        spinner.start()
         
-        thread = threading.Thread(target=run_in_thread, daemon=True)
-        thread.start()
+        # Execute command asynchronously
+        self._command_executor.execute_async(cmd, shell=shell)
     
     def _rebuild_all_machines(self, output_log: OutputLog) -> None:
         """Rebuild all machine configurations."""
