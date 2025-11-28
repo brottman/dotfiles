@@ -1,3 +1,9 @@
-NixOS VM modules (built-in)
+NixOS VM modules (built-in) using virtualisation.* modules
 
-Use virtualisation.* modules, but these are primarily for test VMs, not persistent production VMs.
+
+
+The VM will be automatically defined when you rebuild your NixOS configuration. After rebuilding, you can:
+Start the VM: virsh start guestvm
+Stop the VM: virsh shutdown guestvm
+View VM status: virsh list --all
+Connect to console: virsh console guestvm
