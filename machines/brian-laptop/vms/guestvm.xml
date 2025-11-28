@@ -2,8 +2,8 @@
 <!-- This is a template - customize as needed -->
 <!-- Export from existing VM: virsh dumpxml vm-name > guestvm.xml -->
 <domain type='kvm'>
-  <name>example-vm</name>
-  <uuid>00000000-0000-0000-0000-000000000000</uuid>
+  <name>guestvm</name>
+  <uuid>72195e06-acbc-4ccf-99b0-66c44514735e</uuid>
   <memory unit='KiB'>4194304</memory>  <!-- 4GB -->
   <currentMemory unit='KiB'>4194304</currentMemory>
   <vcpu placement='static'>2</vcpu>
@@ -21,7 +21,6 @@
   <on_reboot>restart</on_reboot>
   <on_crash>destroy</on_crash>
   <devices>
-    <emulator>/usr/bin/qemu-system-x86_64</emulator>
     <disk type='file' device='disk'>
       <driver name='qemu' type='qcow2'/>
       <source file='/data/vms/example-vm.qcow2'/>
