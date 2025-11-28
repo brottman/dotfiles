@@ -54,8 +54,16 @@ if [[ -z "$MACHINE_NAME" ]]; then
     exit 1
 fi
 
+# Configure Nix to automatically accept experimental features and trust
+export NIX_CONFIG="experimental-features = nix-command flakes"
+export NIXPKGS_ALLOW_UNFREE=1
+
 info "Installing NixOS for machine: $MACHINE_NAME"
 info "Repository: $REPO_URL"
+
+# Configure Nix to automatically accept experimental features and trust
+export NIX_CONFIG="experimental-features = nix-command flakes"
+export NIXPKGS_ALLOW_UNFREE=1
 
 # Step 1: Check network connectivity
 info "Step 1: Checking network connectivity..."
@@ -332,13 +340,13 @@ cd /mnt/etc/nixos
 
 # Verify flake can be evaluated
 info "Verifying flake configuration..."
-if ! nix flake check ".#$MACHINE_NAME" 2>/dev/null; then
+if ! yes | nix flake check ".#$MACHINE_NAME" 2>/dev/null; then
     warning "Flake check had warnings, but continuing..."
 fi
 
 # Build and install the system
 info "Building and installing NixOS (this may take a while)..."
-nixos-install --flake ".#$MACHINE_NAME" --no-root-password
+yes | nixos-install --flake ".#$MACHINE_NAME" --no-root-password
 
 success "NixOS installation completed successfully!"
 info ""
