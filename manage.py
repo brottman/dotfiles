@@ -1,7 +1,7 @@
 #!/usr/bin/env nix-shell
 #! nix-shell -i python3 -p python3 python3Packages.rich python3Packages.textual
 """
-manage.py - System Management Console
+manage.py - System Management Console v1.00
 A beautiful terminal user interface for managing NixOS, Docker, System, Git, Network, Services, and Storage.
 """
 
@@ -48,6 +48,13 @@ except ImportError:
     print("  or")
     print("  nix-shell -p python3Packages.rich")
     sys.exit(1)
+
+
+# =============================================================================
+# Version Information
+# =============================================================================
+
+VERSION = "1.00"
 
 
 # =============================================================================
@@ -1233,7 +1240,7 @@ class ManageApp(App):
         return self.machines_list[0] if self.machines_list else None
     
     def compose(self) -> ComposeResult:
-        yield Header(show_clock=True)
+        yield Header(title=f"System Management Console v{VERSION}", show_clock=True)
         
         with Vertical(id="main-container"):
             yield Static(
