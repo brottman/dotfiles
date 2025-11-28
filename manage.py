@@ -82,6 +82,7 @@ ACTIONS = {
         ("docker-compose-up", "Compose Up", "Start all services defined in docker-compose.yml", False, False),
         ("docker-compose-down", "Compose Down", "Stop and remove all composed services", False, False),
         ("docker-compose-logs", "Compose Logs", "View logs from all composed services", False, False),
+        ("docker-prune", "System Prune", "Remove unused containers, networks, and images", True, False),
         ("docker-prune-all", "Full Prune", "Remove all unused data including volumes", True, False),
         ("docker-stats", "Container Stats", "Show real-time resource usage of containers", False, False),
         ("docker-networks", "List Networks", "Show all Docker networks", False, False),
@@ -1538,6 +1539,8 @@ class ManageApp(App):
             self._run_streaming(["docker", "compose", "down"], output_log)
         elif action_id == "docker-compose-logs":
             self._run_streaming(["docker", "compose", "logs", "--tail=50"], output_log)
+        elif action_id == "docker-prune":
+            self._run_streaming(["docker", "system", "prune", "-f"], output_log)
         elif action_id == "docker-prune-all":
             self._run_streaming(["docker", "system", "prune", "-af", "--volumes"], output_log)
         elif action_id == "docker-stats":
