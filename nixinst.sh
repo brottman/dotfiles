@@ -111,6 +111,24 @@ echo "generating NixOS configuration..."
 
 sudo nixos-generate-config --root /mnt
 
+echo "configuring bootloader for UEFI (systemd-boot)..."
+
+# Remove any existing bootloader configuration lines
+sudo sed -i '/boot.loader.systemd-boot.enable = /d' /mnt/etc/nixos/configuration.nix
+sudo sed -i '/boot.loader.grub.enable = /d' /mnt/etc/nixos/configuration.nix
+sudo sed -i '/boot.loader.grub.devices = /d' /mnt/etc/nixos/configuration.nix
+sudo sed -i '/boot.loader.efi.canTouchEfiVariables = /d' /mnt/etc/nixos/configuration.nix
+
+# Add bootloader configuration using a temporary file
+sudo sh -c 'cat >> /mnt/etc/nixos/configuration.nix << EOF
+
+  # Bootloader (configured for UEFI)
+  boot.loader.grub.enable = false;
+  boot.loader.systemd-boot.enable = true;
+  boot.loader.efi.canTouchEfiVariables = true;
+EOF
+'
+
 read -p "Press enter and the Nix configuration will be opened in nano."
 
 sudo nano /mnt/etc/nixos/configuration.nix
