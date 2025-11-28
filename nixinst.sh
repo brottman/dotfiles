@@ -5,7 +5,11 @@ set -euo pipefail
 # This script installs NixOS from a minimal ISO using the dotfiles flake
 #
 # Usage: ./nixinst.sh <machine-name> [disk] [repo-url]
-# Example: ./nixinst.sh brian-laptop /dev/nvme0n1 https://github.com/user/dotfiles.git
+# Example: ./nixinst.sh brian-laptop /dev/nvme0n1
+#          ./nixinst.sh brian-laptop /dev/nvme0n1 https://github.com/user/dotfiles.git
+#
+# Note: If run from within the repository directory, it will use the existing
+#       repository instead of cloning. Otherwise, it will clone from the URL.
 
 # Colors for output
 RED='\033[0;31m'
@@ -211,12 +215,13 @@ swapoff -a 2>/dev/null || true
 # Create partition table (GPT)
 parted "$DISK" -- mklabel gpt
 
-# Create boot partition (EFI, 512MB)
-parted "$DISK" -- mkpart ESP fat32 1MiB 513MiB
+# Create boot partition (EFI, 2048MB / 2GB)
+EFI_SIZE_MIB=2049
+parted "$DISK" -- mkpart ESP fat32 1MiB ${EFI_SIZE_MIB}MiB
 parted "$DISK" -- set 1 esp on
 
 # Create root partition (rest of disk)
-parted "$DISK" -- mkpart primary ext4 513MiB 100%
+parted "$DISK" -- mkpart primary ext4 ${EFI_SIZE_MIB}MiB 100%
 
 # Wait for partitions to be available
 sleep 2
@@ -247,24 +252,43 @@ mount "$BOOT_PART" /mnt/boot
 
 success "Disks prepared and mounted"
 
-# Step 4: Clone repository and install
-info "Step 4: Cloning repository and installing NixOS..."
+# Step 4: Copy repository and install
+info "Step 4: Setting up repository and installing NixOS..."
 
-# Clone the repository
+# Check if repository exists in current directory
+REPO_SOURCE=""
+if [[ -d "$(pwd)/.git" ]] && [[ -f "$(pwd)/flake.nix" ]]; then
+    info "Found repository in current directory: $(pwd)"
+    REPO_SOURCE="$(pwd)"
+elif [[ -d "$(pwd)/dotfiles/.git" ]] && [[ -f "$(pwd)/dotfiles/flake.nix" ]]; then
+    info "Found repository in dotfiles subdirectory"
+    REPO_SOURCE="$(pwd)/dotfiles"
+fi
+
+# Copy or clone repository
 if [[ -d /mnt/etc/nixos ]]; then
     warning "/mnt/etc/nixos already exists, removing..."
     rm -rf /mnt/etc/nixos
 fi
 
 mkdir -p /mnt/etc/nixos
-info "Cloning repository to /mnt/etc/nixos..."
-git clone "$REPO_URL" /mnt/etc/nixos
+
+if [[ -n "$REPO_SOURCE" ]]; then
+    info "Copying repository from $REPO_SOURCE to /mnt/etc/nixos..."
+    cp -r "$REPO_SOURCE"/* /mnt/etc/nixos/
+    cp -r "$REPO_SOURCE"/.git /mnt/etc/nixos/ 2>/dev/null || true
+    success "Repository copied successfully"
+else
+    warning "Repository not found in current directory"
+    info "Cloning repository from $REPO_URL..."
+    git clone "$REPO_URL" /mnt/etc/nixos
+fi
 
 # Verify machine name exists
 if [[ ! -d "/mnt/etc/nixos/machines/$MACHINE_NAME" ]]; then
     error "Machine '$MACHINE_NAME' not found in repository"
     error "Available machines:"
-    ls -1 /mnt/etc/nixos/machines/
+    ls -1 /mnt/etc/nixos/machines/ 2>/dev/null || echo "  (none found)"
     exit 1
 fi
 
