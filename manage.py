@@ -1211,6 +1211,7 @@ class ManageApp(App):
     
     def __init__(self):
         super().__init__()
+        self.title = f"System Management Console v{VERSION}"
         self.flake_path = Path(__file__).parent.absolute()
         self.machines_list = MACHINES
         self.current_machine = self._detect_current_machine()
@@ -1240,7 +1241,7 @@ class ManageApp(App):
         return self.machines_list[0] if self.machines_list else None
     
     def compose(self) -> ComposeResult:
-        yield Header(title=f"System Management Console v{VERSION}", show_clock=True)
+        yield Header(show_clock=True)
         
         with Vertical(id="main-container"):
             yield Static(
