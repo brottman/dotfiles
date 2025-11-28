@@ -84,7 +84,6 @@
             </disk>
             <disk type='file' device='cdrom'>
               <driver name='qemu' type='raw'/>
-              <source file='/var/lib/libvirt/images/ISOs/install.iso'/>
               <target dev='sda' bus='sata'/>
               <readonly/>
               <address type='drive' controller='0' bus='0' target='0' unit='0'/>
