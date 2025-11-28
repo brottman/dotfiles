@@ -1,142 +1,181 @@
-# Declarative VM Configuration Guide
+# VM Management Options
 
-This directory contains declaratively managed libvirt VM configurations for brian-laptop.
+This directory contains 5 different approaches for managing virtual machines (VMs) with libvirt in NixOS. Each option has different trade-offs in terms of simplicity, scalability, and maintainability.
 
-## Options for Declarative VM Management
+## Overview
 
-### Option 1: Libvirt Domain XML Files + Systemd Services (Recommended)
+All options share the same base configuration:
+- Enable `libvirtd` for VM management
+- Configure QEMU/KVM with TPM support (swtpm)
+- Add user to `libvirtd` group for VM management permissions
 
-**How it works:**
-- Store VM domain XML files in this directory (e.g., `my-vm.xml`)
-- Use systemd services in `configuration.nix` to automatically define VMs on boot
-- Optionally auto-start VMs
+The differences lie in how VMs are defined and managed.
 
-**Pros:**
-- Full control over VM configuration
-- Version-controlled and reproducible
-- Integrates with existing libvirt setup
-- Can use `virsh dumpxml` to export existing VMs
+## Option 1: Individual VM Services (Simple, explicit)
 
-**Cons:**
-- Need to manage XML files manually
-- More verbose configuration
+**File:** `vms-option1.nix`
 
-### Option 2: Systemd Services with Inline virsh Commands
+**Best for:** Small number of VMs, maximum clarity
 
-**How it works:**
-- Define VMs directly in systemd services using virsh commands
-- Can include disk creation, network setup, etc.
+**Description:**
+This is the simplest approach where each VM is defined as a separate systemd service. Each VM gets its own `define-vm-*` service that runs `virsh define` on an external XML file. Optionally, you can add `autostart-vm-*` services to automatically start VMs on boot.
 
 **Pros:**
-- Everything in Nix configuration
-- Can use Nix variables and functions
+- Very explicit and easy to understand
+- Easy to see what each VM does
+- Simple to add or remove individual VMs
 
 **Cons:**
-- Less flexible than XML
-- Harder to modify complex VM configs
+- Repetitive code when managing many VMs
+- Not scalable for large numbers of VMs
 
-### Option 3: Extend manage.py Script
+**Example:**
+- Defines `example-vm` using `example-vm.xml`
+- Optionally auto-starts `example-vm` on boot
+- Can easily add more VMs by duplicating the service definitions
 
-**How it works:**
-- Add functionality to `manage.py` to generate and manage VM configs
-- Could generate XML files or systemd services automatically
+---
+
+## Option 2: Helper Function + List (Scalable, clean)
+
+**File:** `vms-option2.nix`
+
+**Best for:** Multiple VMs, maintainable and DRY (Don't Repeat Yourself)
+
+**Description:**
+This approach uses helper functions (`defineVM` and `autostartVM`) to generate systemd services for multiple VMs from a list. You define your VMs in a list (`managedVMs`) and optionally specify which ones should auto-start (`autoStartVMs`).
 
 **Pros:**
-- Interactive wizard (already exists)
-- Could automate common VM types
+- DRY - no code duplication
+- Easy to add/remove VMs by modifying lists
+- Scales well to many VMs
+- Clean separation of concerns
 
 **Cons:**
-- Less "declarative" - more imperative
-- Requires Python script maintenance
+- Slightly more complex than Option 1
+- Requires understanding of Nix list operations
 
-## Example: Creating a Declarative VM
+**Example:**
+- `managedVMs = [ "example-vm" "another-vm" "third-vm" ]`
+- `autoStartVMs = [ "example-vm" ]`
+- Automatically generates all necessary services
 
-### Step 1: Export existing VM (if you have one)
+---
 
-```bash
-virsh dumpxml my-vm > machines/brian-laptop/vms/my-vm.xml
-```
+## Option 3: Using lib.attrsets (Advanced, NixOS-style)
 
-### Step 2: Edit the XML (optional)
+**File:** `vms-option3.nix`
 
-You may want to:
-- Adjust resource allocation (CPU, memory)
-- Change disk paths
-- Update network settings
-- Add/remove devices
+**Best for:** NixOS veterans, integration with existing complex configurations
 
-### Step 3: Add systemd service to configuration.nix
+**Description:**
+This approach uses NixOS library functions (`lib.genAttrs` and `lib.mkMerge`) for a more idiomatic NixOS style. It's similar to Option 2 but uses NixOS-specific utilities that integrate better with complex configurations.
+
+**Pros:**
+- Most NixOS-idiomatic approach
+- Integrates well with existing complex configurations
+- Can easily merge with other systemd services using `lib.mkMerge`
+
+**Cons:**
+- Requires familiarity with NixOS library functions
+- More abstract than Options 1 and 2
+
+**Example:**
+- Uses `lib.genAttrs` to generate services from a list
+- Uses `lib.mkMerge` to merge with existing services
+- Same VM list approach as Option 2
+
+---
+
+## Option 4: Full VM with Disk Creation (Advanced)
+
+**File:** `vms-option4.nix`
+
+**Best for:** Complete declarative VM management including storage
+
+**Description:**
+This option extends Option 1 by adding disk image creation as part of the VM definition. It creates the disk image using `qemu-img` before defining the VM, making the entire VM lifecycle declarative.
+
+**Pros:**
+- Complete declarative management including storage
+- Automatically creates disk images if they don't exist
+- Creates necessary directories (e.g., ISOs directory)
+- Idempotent - safe to run multiple times
+
+**Cons:**
+- More complex than Options 1-3
+- Still requires external XML files
+- More services to manage
+
+**Example:**
+- Creates `/var/lib/libvirt/images/ISOs` directory
+- Creates `example-vm.qcow2` disk image (20GB) if it doesn't exist
+- Defines the VM using `example-vm.xml`
+- Optionally auto-starts the VM
+
+---
+
+## Option 5: Inline XML in Systemd Service
+
+**File:** `vms-option5.nix`
+
+**Best for:** Everything in Nix, no external XML files needed
+
+**Description:**
+This is the most self-contained option. It defines the VM XML directly in the systemd service using a shell script with a heredoc. It also includes disk creation like Option 4, but everything is in one Nix file.
+
+**Pros:**
+- No external XML files needed
+- Everything is in Nix
+- Includes disk creation
+- Idempotent - automatically undefines existing VM before redefining
+- Most self-contained option
+
+**Cons:**
+- XML embedded in Nix can be harder to read/edit
+- Less flexible for complex XML editing
+- Most complex option
+
+**Example:**
+- Creates directories and disk images (like Option 4)
+- Defines VM with inline XML using shell script heredoc
+- Automatically handles VM redefinition (undefines if exists)
+- Includes full VM configuration: memory, CPU, disks, network, graphics, etc.
+
+---
+
+## Comparison Table
+
+| Option | Complexity | Scalability | External Files | Disk Management | Best For |
+|--------|-----------|-------------|----------------|-----------------|----------|
+| 1      | Low       | Low         | Yes (XML)      | No              | Small setups |
+| 2      | Medium    | High        | Yes (XML)      | No              | Multiple VMs |
+| 3      | Medium    | High        | Yes (XML)      | No              | NixOS experts |
+| 4      | Medium    | Low         | Yes (XML)      | Yes             | Complete control |
+| 5      | High      | Medium      | No             | Yes             | Self-contained |
+
+## Usage
+
+To use any of these options, import the desired file in your `configuration.nix`:
 
 ```nix
-# Define the VM domain
-systemd.services.define-vm-myvm = {
-  description = "Define VM: myvm";
-  after = [ "libvirtd.service" ];
-  requires = [ "libvirtd.service" ];
-  serviceConfig = {
-    Type = "oneshot";
-    RemainAfterExit = true;
-    ExecStart = "${pkgs.libvirt}/bin/virsh define ${./vms/my-vm.xml}";
-  };
-  wantedBy = [ "multi-user.target" ];
-};
-
-# Optionally auto-start the VM on boot
-systemd.services.autostart-vm-myvm = {
-  description = "Autostart VM: myvm";
-  after = [ "define-vm-myvm.service" "libvirtd.service" ];
-  requires = [ "define-vm-myvm.service" ];
-  serviceConfig = {
-    Type = "oneshot";
-    RemainAfterExit = true;
-    ExecStart = "${pkgs.libvirt}/bin/virsh autostart myvm";
-  };
-  wantedBy = [ "multi-user.target" ];
-};
+imports = [
+  ./vms/vms-option1.nix  # or option2, option3, option4, or option5
+];
 ```
 
-### Step 4: Rebuild
+## Example VM XML
 
-```bash
-sudo nixos-rebuild switch
-```
-
-## Using the Helper Function
-
-For multiple VMs, you can create a helper function in `configuration.nix`:
-
-```nix
-# Helper function to define a VM
-defineVM = name: {
-  description = "Define VM: ${name}";
-  after = [ "libvirtd.service" ];
-  requires = [ "libvirtd.service" ];
-  serviceConfig = {
-    Type = "oneshot";
-    RemainAfterExit = true;
-    ExecStart = "${pkgs.libvirt}/bin/virsh define ${./vms/${name}.xml}";
-  };
-  wantedBy = [ "multi-user.target" ];
-};
-
-# Then use it:
-systemd.services.define-vm-myvm = defineVM "my-vm";
-systemd.services.define-vm-another = defineVM "another-vm";
-```
-
-## Managing VMs
-
-- **List VMs:** `virsh list --all`
-- **Start VM:** `virsh start my-vm`
-- **Stop VM:** `virsh shutdown my-vm` (graceful) or `virsh destroy my-vm` (force)
-- **View console:** `virsh console my-vm`
-- **Edit XML:** `virsh edit my-vm` (then export to file)
-- **Undefine VM:** `virsh undefine my-vm` (removes from libvirt, doesn't delete disk)
+The `example-vm.xml` file provides a template for VM definitions. You can:
+- Customize it for your needs
+- Export from an existing VM: `virsh dumpxml vm-name > example-vm.xml`
+- Use it as a starting point for new VMs
 
 ## Notes
 
-- VM disk images are typically stored outside this repo (e.g., `/data/vms/`)
-- XML files should only contain the domain definition, not disk images
-- Changes to XML files require rebuild to take effect
-- You can use `virsh edit` to modify running VMs, but changes won't persist across reboots unless you export them back to the XML file
+- All options require the user to be in the `libvirtd` group (handled automatically)
+- All options use `libvirtd` service which must be running
+- Auto-start services are optional - remove them if you don't want VMs to start on boot
+- Disk images in Option 4 and 5 are created with `ConditionPathExists` to avoid overwriting existing disks
+- Option 5 automatically handles VM redefinition by undefining existing VMs first
 

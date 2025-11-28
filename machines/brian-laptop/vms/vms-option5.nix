@@ -1,4 +1,7 @@
-# Virtual machine configuration for brian-laptop
+# Option 5: Inline XML in Systemd Service
+# This approach defines the VM XML directly in the systemd service using a shell script
+# Best for: Everything in Nix, no external XML files needed
+# See OPTIONS-INDEX.md for comparison of all options
 { config, pkgs, lib, ... }:
 
 {
@@ -12,10 +15,8 @@
   };
 
   # Add user to libvirt group for VM management
-  # NixOS automatically merges extraGroups from multiple modules
   users.users.brian.extraGroups = [ "libvirtd" ];
 
-  # Declarative VM: guestvm
   # Create ISOs directory for storage pool
   systemd.services.create-isos-directory = {
     description = "Create ISOs directory for libvirt storage pool";
@@ -25,44 +26,44 @@
       ExecStart = "${pkgs.coreutils}/bin/mkdir -p /var/lib/libvirt/images/ISOs";
     };
     wantedBy = [ "multi-user.target" ];
-    before = [ "define-vm-guestvm.service" ];
+    before = [ "create-vm-disk-example.service" ];
   };
 
   # Create disk image if it doesn't exist
-  systemd.services.create-guestvm-disk = {
-    description = "Create disk image for guestvm";
+  systemd.services.create-vm-disk-example = {
+    description = "Create disk image for example-vm";
     serviceConfig = {
       Type = "oneshot";
       RemainAfterExit = true;
       ExecStartPre = "${pkgs.coreutils}/bin/mkdir -p /var/lib/libvirt/images";
-      ExecStart = "${pkgs.qemu}/bin/qemu-img create -f qcow2 /var/lib/libvirt/images/guestvm.qcow2 20G";
+      ExecStart = "${pkgs.qemu}/bin/qemu-img create -f qcow2 /var/lib/libvirt/images/example-vm.qcow2 20G";
     };
     wantedBy = [ "multi-user.target" ];
-    before = [ "define-vm-guestvm.service" ];
-    unitConfig.ConditionPathExists = "!/var/lib/libvirt/images/guestvm.qcow2";
+    before = [ "define-vm-example.service" ];
+    unitConfig.ConditionPathExists = "!/var/lib/libvirt/images/example-vm.qcow2";
   };
 
-  # Define the VM domain
-  systemd.services.define-vm-guestvm = {
-    description = "Define VM: guestvm";
-    after = [ "libvirtd.service" "create-guestvm-disk.service" ];
+  # Define the VM domain with inline XML
+  systemd.services.define-vm-example = {
+    description = "Define VM: example-vm";
+    after = [ "libvirtd.service" "create-vm-disk-example.service" ];
     requires = [ "libvirtd.service" ];
     serviceConfig = {
       Type = "oneshot";
       RemainAfterExit = true;
-      ExecStart = pkgs.writeShellScript "define-guestvm" ''
+      ExecStart = pkgs.writeShellScript "define-example-vm" ''
         # Undefine the VM if it already exists (idempotent operation)
         # This allows the configuration to be updated without manual intervention
-        if ${pkgs.libvirt}/bin/virsh dominfo guestvm &>/dev/null; then
-          ${pkgs.libvirt}/bin/virsh undefine guestvm || true
+        if ${pkgs.libvirt}/bin/virsh dominfo example-vm &>/dev/null; then
+          ${pkgs.libvirt}/bin/virsh undefine example-vm || true
         fi
         
         # Define the VM
         ${pkgs.libvirt}/bin/virsh define /dev/stdin <<EOF
         <domain type='kvm'>
-          <name>guestvm</name>
-          <memory unit='KiB'>1048576</memory>
-          <currentMemory unit='KiB'>1048576</currentMemory>
+          <name>example-vm</name>
+          <memory unit='KiB'>4194304</memory>
+          <currentMemory unit='KiB'>4194304</currentMemory>
           <vcpu placement='static'>2</vcpu>
           <os>
             <type arch='x86_64' machine='pc-q35-9.0'>hvm</type>
@@ -81,13 +82,13 @@
           <devices>
             <disk type='file' device='disk'>
               <driver name='qemu' type='qcow2'/>
-              <source file='/var/lib/libvirt/images/guestvm.qcow2'/>
+              <source file='/var/lib/libvirt/images/example-vm.qcow2'/>
               <target dev='vda' bus='virtio'/>
               <address type='pci' domain='0x0000' bus='0x04' slot='0x00' function='0x0'/>
             </disk>
             <disk type='file' device='cdrom'>
               <driver name='qemu' type='raw'/>
-              <source file='/data/Seafile/ISOs/nixos-minimal-25.05.812880.4c8cdd5b1a63-x86_64-linux.iso'/>
+              <source file='/var/lib/libvirt/images/ISOs/install.iso'/>
               <target dev='sda' bus='sata'/>
               <readonly/>
               <address type='drive' controller='0' bus='0' target='0' unit='0'/>
@@ -109,6 +110,19 @@
         </domain>
         EOF
       '';
+    };
+    wantedBy = [ "multi-user.target" ];
+  };
+
+  # Optionally auto-start the VM on boot
+  systemd.services.autostart-vm-example = {
+    description = "Autostart VM: example-vm";
+    after = [ "define-vm-example.service" "libvirtd.service" ];
+    requires = [ "define-vm-example.service" ];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      ExecStart = "${pkgs.libvirt}/bin/virsh autostart example-vm";
     };
     wantedBy = [ "multi-user.target" ];
   };

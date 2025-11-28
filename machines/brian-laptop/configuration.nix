@@ -4,7 +4,26 @@
 {
   imports = [
     ../../common/common.nix
-    ./vms-modules.nix
+    
+    # VM Configuration Options
+    # WARNING: Having multiple VM option files active will cause conflicts!
+    # They all define libvirtd, user groups, and systemd services.
+    # You should only have ONE active at a time. Comment out the ones you don't need.
+    
+    # Option 1: Individual VM Services (Simple, explicit)
+    #./vms/vms-option1.nix
+    
+    # Option 2: Helper Function + List (Scalable, clean)
+    #./vms/vms-option2.nix
+    
+    # Option 3: Using lib.attrsets (Advanced, NixOS-style)
+    #./vms/vms-option3.nix
+    
+    # Option 4: Full VM with Disk Creation (Advanced)
+    #./vms/vms-option4.nix
+    
+    # Option 5: Inline XML in Systemd Service
+    #./vms/vms-option5.nix
   ];
 
   # Allow unfree packages
