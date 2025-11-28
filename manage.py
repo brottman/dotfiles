@@ -82,6 +82,7 @@ ACTIONS = {
         ("status", "List Generations", "Show current and available NixOS generations", False, True),
         ("gc", "Garbage Collection", "Remove old generations and free up disk space", False, False),
         ("list", "List Machines", "Show all available machine configurations", False, False),
+        ("devshells", "Show devShells", "List all available development shells from the flake", False, False),
     ],
     "docker": [
         ("docker-ps", "List Containers", "Show all running Docker containers", False, False),
@@ -1533,6 +1534,8 @@ class ManageApp(App):
             self._run_streaming(["sudo", "nix-collect-garbage", "-d"], output_log)
         elif action_id == "list":
             self._list_machines(output_log)
+        elif action_id == "devshells":
+            self._list_devshells(output_log)
         
         # Docker commands
         elif action_id == "docker-ps":
@@ -1931,6 +1934,73 @@ class ManageApp(App):
         output_log.write_line("\n" + "-" * 60 + "\n")
         spinner = self.query_one("#spinner", Spinner)
         spinner.stop_success()
+    
+    def _list_devshells(self, output_log: OutputLog) -> None:
+        """List all available development shells from the flake."""
+        def run_in_thread():
+            try:
+                # Get flake output as JSON
+                result = subprocess.run(
+                    ["nix", "flake", "show", "--json"],
+                    cwd=str(self.flake_path),
+                    capture_output=True,
+                    text=True,
+                    timeout=30
+                )
+                
+                if result.returncode != 0:
+                    self.call_from_thread(output_log.write_line, f"Error running nix flake show:\n{result.stderr}\n")
+                    spinner = self.call_from_thread(self.query_one, "#spinner", Spinner)
+                    self.call_from_thread(spinner.stop)
+                    return
+                
+                # Parse JSON output
+                try:
+                    flake_data = json.loads(result.stdout)
+                except json.JSONDecodeError as e:
+                    self.call_from_thread(output_log.write_line, f"Error parsing flake output: {e}\n")
+                    spinner = self.call_from_thread(self.query_one, "#spinner", Spinner)
+                    self.call_from_thread(spinner.stop)
+                    return
+                
+                # Extract devShells
+                devshells = flake_data.get("devShells", {})
+                
+                if not devshells:
+                    self.call_from_thread(output_log.write_line, "No devShells found in this flake.\n")
+                    spinner = self.call_from_thread(self.query_one, "#spinner", Spinner)
+                    self.call_from_thread(spinner.stop_success)
+                    return
+                
+                self.call_from_thread(output_log.write_line, "Available Development Shells:\n\n")
+                
+                # Iterate through systems (usually x86_64-linux, etc.)
+                for system, shells in devshells.items():
+                    self.call_from_thread(output_log.write_line, f"System: {system}\n")
+                    for shell_name, shell_info in shells.items():
+                        description = shell_info.get("description", "")
+                        if description:
+                            self.call_from_thread(output_log.write_line, f"  🐚 {shell_name}\n")
+                            self.call_from_thread(output_log.write_line, f"      {description}\n")
+                        else:
+                            self.call_from_thread(output_log.write_line, f"  🐚 {shell_name}\n")
+                        self.call_from_thread(output_log.write_line, f"      Enter with: nix develop .#{shell_name}\n")
+                
+                self.call_from_thread(output_log.write_line, "\n" + "-" * 60 + "\n")
+                spinner = self.call_from_thread(self.query_one, "#spinner", Spinner)
+                self.call_from_thread(spinner.stop_success)
+                
+            except subprocess.TimeoutExpired:
+                self.call_from_thread(output_log.write_line, "Error: Command timed out\n")
+                spinner = self.call_from_thread(self.query_one, "#spinner", Spinner)
+                self.call_from_thread(spinner.stop)
+            except Exception as e:
+                self.call_from_thread(output_log.write_line, f"Error listing devShells: {e}\n")
+                spinner = self.call_from_thread(self.query_one, "#spinner", Spinner)
+                self.call_from_thread(spinner.stop)
+        
+        thread = threading.Thread(target=run_in_thread, daemon=True)
+        thread.start()
     
     def _run_health_check(self, output_log: OutputLog) -> None:
         """Run system health check."""

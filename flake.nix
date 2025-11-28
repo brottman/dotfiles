@@ -122,6 +122,16 @@
             python314Packages.black
             python314Packages.pytest
             python314Packages.ipython
+
+            #Skylight dependencies
+            python314Packages.Django
+            python314Packages.Pillow
+            python314Packages.requests
+            python314Packages.beautifulsoup4
+            python314Packages.google-api-python-client
+            python314Packages.google-auth
+            python314Packages.google-auth-httplib2
+            python314Packages.google-auth-oauthlib
           ];
         };
       };
