@@ -1056,82 +1056,6 @@ class VMCreateWizard(ModalScreen):
 
 
 # =============================================================================
-# Script Update Prompt Screen
-# =============================================================================
-
-class ScriptUpdateScreen(ModalScreen):
-    """Modal screen to prompt user to restart after script update."""
-    
-    CSS = """
-    ScriptUpdateScreen {
-        align: center middle;
-    }
-    
-    #update-container {
-        width: 70;
-        height: auto;
-        border: solid $warning;
-        background: $surface;
-        padding: 1;
-    }
-    
-    .update-title {
-        text-align: center;
-        text-style: bold;
-        padding: 1;
-        border-bottom: solid $warning;
-    }
-    
-    .update-message {
-        padding: 1;
-    }
-    
-    .update-buttons {
-        height: 3;
-        align: center middle;
-        padding: 1;
-    }
-    """
-    
-    BINDINGS = [
-        Binding("escape", "dismiss", "Dismiss"),
-    ]
-    
-    def __init__(self, updated_scripts: List[str]):
-        super().__init__()
-        self.updated_scripts = updated_scripts
-    
-    def compose(self) -> ComposeResult:
-        with Vertical(id="update-container"):
-            yield Static(
-                "[bold yellow]Management Script Updated[/bold yellow]",
-                classes="update-title"
-            )
-            with Vertical(classes="update-message"):
-                yield Static(
-                    f"The following management script(s) have been updated:\n"
-                    f"[bold]{', '.join(self.updated_scripts)}[/bold]\n\n"
-                    f"Please restart the management script to use the new version."
-                )
-            with Horizontal(classes="update-buttons"):
-                yield Button("Restart Now", id="btn-restart", variant="primary")
-                yield Button("Continue (Restart Later)", id="btn-dismiss", variant="default")
-    
-    @on(Button.Pressed, "#btn-restart")
-    def on_restart(self) -> None:
-        """Restart the management script."""
-        self.dismiss(True)
-        # Exit the app - user should restart manually to use updated script
-        # We can't easily auto-restart because the script file may have changed
-        self.app.exit()
-    
-    @on(Button.Pressed, "#btn-dismiss")
-    def on_dismiss(self) -> None:
-        """Dismiss the prompt."""
-        self.dismiss(False)
-
-
-# =============================================================================
 # Main Application
 # =============================================================================
 
@@ -1290,8 +1214,6 @@ class ManageApp(App):
         self._current_process_exit_code = None
         self._pending_dangerous_action = None  # (action_id, title, requires_machine)
         self._dangerous_confirmation_count = 0
-        self._script_mtime_before_pull = None
-        self._git_pull_thread = None
     
     def _detect_current_machine(self) -> Optional[str]:
         """Detect the current machine from hostname."""
@@ -1354,8 +1276,6 @@ class ManageApp(App):
         self._update_description()
         output_log = self.query_one("#output-log", OutputLog)
         output_log.write_line("Ready. Select an action and press Enter to execute.\n")
-        # Start background git pull
-        self._start_git_pull()
         # Set focus on the action list so arrow keys work immediately
         # Use call_after_refresh to ensure the widget is fully mounted
         self.call_after_refresh(self._set_initial_focus)
@@ -1367,61 +1287,6 @@ class ManageApp(App):
             self.set_focus(action_list)
         except Exception:
             pass
-    
-    def _get_script_mtime(self, script_path: Path) -> Optional[float]:
-        """Get modification time of a script file."""
-        try:
-            return script_path.stat().st_mtime
-        except (OSError, FileNotFoundError):
-            return None
-    
-    def _start_git_pull(self) -> None:
-        """Start background git pull and check for script updates."""
-        # Store modification times of management scripts before git pull
-        manage_py = Path(__file__).absolute()
-        manage_wrapper = manage_py.parent / "manage-wrapper.sh"
-        self._script_mtime_before_pull = {
-            "manage.py": self._get_script_mtime(manage_py),
-            "manage-wrapper.sh": self._get_script_mtime(manage_wrapper),
-        }
-        
-        # Start git pull in background thread
-        def git_pull_thread():
-            try:
-                result = subprocess.run(
-                    ["git", "pull"],
-                    cwd=self.flake_path,
-                    capture_output=True,
-                    text=True,
-                    timeout=30
-                )
-                # Check if scripts were updated
-                self.call_from_thread(self._check_script_updates)
-            except (subprocess.TimeoutExpired, subprocess.CalledProcessError, Exception):
-                # Silently fail - git pull errors shouldn't interrupt the app
-                pass
-        
-        self._git_pull_thread = threading.Thread(target=git_pull_thread, daemon=True)
-        self._git_pull_thread.start()
-    
-    def _check_script_updates(self) -> None:
-        """Check if management scripts were updated and prompt for restart."""
-        manage_py = Path(__file__).absolute()
-        manage_wrapper = manage_py.parent / "manage-wrapper.sh"
-        
-        scripts_updated = []
-        if self._script_mtime_before_pull["manage.py"]:
-            current_mtime = self._get_script_mtime(manage_py)
-            if current_mtime and current_mtime > self._script_mtime_before_pull["manage.py"]:
-                scripts_updated.append("manage.py")
-        
-        if self._script_mtime_before_pull["manage-wrapper.sh"]:
-            current_mtime = self._get_script_mtime(manage_wrapper)
-            if current_mtime and current_mtime > self._script_mtime_before_pull["manage-wrapper.sh"]:
-                scripts_updated.append("manage-wrapper.sh")
-        
-        if scripts_updated:
-            self.push_screen(ScriptUpdateScreen(scripts_updated))
     
     def _get_current_action_list(self) -> Optional[ActionList]:
         """Get the ActionList for the current tab."""
