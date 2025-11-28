@@ -51,7 +51,7 @@
     serviceConfig = {
       Type = "oneshot";
       RemainAfterExit = true;
-      ExecStart = "${pkgs.libvirt}/bin/virsh define ${./example-vm.xml}";
+      ExecStart = "${pkgs.libvirt}/bin/virsh define ${./guestvm.xml}";
     };
     wantedBy = [ "multi-user.target" ];
   };

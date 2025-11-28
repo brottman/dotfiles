@@ -30,7 +30,7 @@ This is the simplest approach where each VM is defined as a separate systemd ser
 - Not scalable for large numbers of VMs
 
 **Example:**
-- Defines `example-vm` using `example-vm.xml`
+- Defines `example-vm` using `guestvm.xml`
 - Optionally auto-starts `example-vm` on boot
 - Can easily add more VMs by duplicating the service definitions
 
@@ -110,7 +110,7 @@ This option extends Option 1 by adding disk image creation as part of the VM def
 **Example:**
 - Creates `/var/lib/libvirt/images/ISOs` directory
 - Creates `example-vm.qcow2` disk image (20GB) if it doesn't exist
-- Defines the VM using `example-vm.xml`
+- Defines the VM using `guestvm.xml`
 - Optionally auto-starts the VM
 
 ---
@@ -166,9 +166,9 @@ imports = [
 
 ## Example VM XML
 
-The `example-vm.xml` file provides a template for VM definitions. You can:
+The `guestvm.xml` file provides a template for VM definitions. You can:
 - Customize it for your needs
-- Export from an existing VM: `virsh dumpxml vm-name > example-vm.xml`
+- Export from an existing VM: `virsh dumpxml vm-name > guestvm.xml`
 - Use it as a starting point for new VMs
 
 ## Notes

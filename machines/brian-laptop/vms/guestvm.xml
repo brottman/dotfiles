@@ -1,6 +1,6 @@
 <!-- Example VM domain XML -->
 <!-- This is a template - customize as needed -->
-<!-- Export from existing VM: virsh dumpxml vm-name > example-vm.xml -->
+<!-- Export from existing VM: virsh dumpxml vm-name > guestvm.xml -->
 <domain type='kvm'>
   <name>example-vm</name>
   <uuid>00000000-0000-0000-0000-000000000000</uuid>
