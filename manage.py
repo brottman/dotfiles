@@ -1741,7 +1741,7 @@ class ManageApp(App):
     
     def __init__(self) -> None:
         super().__init__()
-        self.title = f"System Management Console v{VERSION}"
+        self.title = "System Management Console"
         self.flake_path: Path = Path(__file__).parent.absolute()
         self.machines_list: List[str] = MACHINES
         self.current_machine: Optional[str] = self._detect_current_machine()
@@ -1753,6 +1753,8 @@ class ManageApp(App):
         self._pending_dangerous_action = None  # (action_id, title, requires_machine)
         self._dangerous_confirmation_count = 0
         self._last_failed_action: Optional[Tuple[str, Optional[str]]] = None  # (action_id, machine)
+        self._validated_machines: Optional[Dict[str, bool]] = None  # Cache for machine validation
+        self._machine_validation_timestamp: Optional[float] = None  # When validation was last done
         
         # Initialize command registry
         self._command_registry = CommandRegistry()
@@ -1995,6 +1997,65 @@ class ManageApp(App):
         }
         
         return command_map.get(action_id, [])
+    
+    def _validate_machine(self, machine: str) -> bool:
+        """
+        Validate that machine exists in flake configuration.
+        Uses caching to avoid repeated flake queries.
+        
+        Args:
+            machine: Machine name to validate
+            
+        Returns:
+            True if machine exists in flake, False otherwise
+        """
+        # Use cache if available and recent (within 5 minutes)
+        import time as time_module
+        current_time = time_module.time()
+        cache_valid = (
+            self._validated_machines is not None and
+            self._machine_validation_timestamp is not None and
+            (current_time - self._machine_validation_timestamp) < 300  # 5 minutes
+        )
+        
+        if cache_valid and machine in self._validated_machines:
+            return self._validated_machines[machine]
+        
+        # Validate against flake
+        try:
+            result = subprocess.run(
+                ["nix", "flake", "show", "--json"],
+                cwd=self.flake_path,
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            if result.returncode == 0:
+                data = json.loads(result.stdout)
+                machines = data.get("nixosConfigurations", {})
+                
+                # Update cache
+                if self._validated_machines is None:
+                    self._validated_machines = {}
+                
+                # Check all known machines and cache results
+                for known_machine in self.machines_list:
+                    self._validated_machines[known_machine] = known_machine in machines
+                
+                # Also check the requested machine
+                is_valid = machine in machines
+                self._validated_machines[machine] = is_valid
+                self._machine_validation_timestamp = current_time
+                
+                return is_valid
+        except (subprocess.TimeoutExpired, subprocess.CalledProcessError, json.JSONDecodeError, Exception):
+            # If validation fails, fall back to checking against known machines list
+            # This is a safety fallback - better to allow known machines than block everything
+            if machine in self.machines_list:
+                return True
+            return False
+        
+        return False
     
     def _check_dependencies(self, action_id: str, output_log: OutputLog) -> bool:
         """
@@ -2494,6 +2555,40 @@ class ManageApp(App):
     
     def _run_action(self, action_id: str, machine: Optional[str], output_log: OutputLog) -> None:
         """Run the actual command for an action using the command registry."""
+        # Validate machine if required
+        if machine is not None:
+            if not self._validate_machine(machine):
+                output_log.write_line(f"✗ Error: Invalid machine name: {machine}\n")
+                output_log.write_line("\nValid machines in this flake:\n")
+                
+                # Get list of valid machines from cache or flake
+                try:
+                    result = subprocess.run(
+                        ["nix", "flake", "show", "--json"],
+                        cwd=self.flake_path,
+                        capture_output=True,
+                        text=True,
+                        timeout=10
+                    )
+                    if result.returncode == 0:
+                        data = json.loads(result.stdout)
+                        valid_machines = list(data.get("nixosConfigurations", {}).keys())
+                        for valid_machine in valid_machines:
+                            output_log.write_line(f"  • {valid_machine}\n")
+                    else:
+                        # Fallback to known machines list
+                        for known_machine in self.machines_list:
+                            output_log.write_line(f"  • {known_machine}\n")
+                except Exception:
+                    # Fallback to known machines list
+                    for known_machine in self.machines_list:
+                        output_log.write_line(f"  • {known_machine}\n")
+                
+                output_log.write_line("\nPress 'm' to cycle through available machines.\n")
+                self._reset_ui_state()
+                self._last_failed_action = (action_id, machine)
+                return
+        
         # Check dependencies before executing
         if not self._check_dependencies(action_id, output_log):
             # Store failed action for retry (dependency issue)
