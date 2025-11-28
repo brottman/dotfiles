@@ -486,12 +486,32 @@ class CommandExecutor:
                 # (e.g., pipes, redirects). The cmd_str should already be sanitized
                 # by the caller, but we validate it doesn't contain dangerous patterns.
                 # In most cases, prefer using list arguments with shell=False.
+                # 
+                # SECURITY: shell=True can be dangerous if user input is involved.
+                # Always validate and sanitize inputs before using shell=True.
+                # Consider using subprocess with list arguments and Python for piping instead.
                 if isinstance(cmd_str, str):
-                    # Basic validation: check for dangerous shell metacharacters
-                    dangerous_patterns = ['$(', '`', ';', '&&', '||']
+                    # Enhanced validation: check for dangerous shell metacharacters and patterns
+                    dangerous_patterns = [
+                        '$(' ,  # Command substitution
+                        '`',    # Backtick command substitution
+                        ';',    # Command separator
+                        '&&',   # Logical AND
+                        '||',   # Logical OR
+                        '|',    # Pipe (should use Python subprocess piping instead)
+                        '<',    # Input redirection
+                        '>',    # Output redirection (except 2>/dev/null which is handled)
+                        '$(',   # Command substitution variant
+                    ]
                     for pattern in dangerous_patterns:
                         if pattern in cmd_str:
-                            raise ValueError(f"Command contains potentially dangerous pattern: {pattern}")
+                            # Allow 2>/dev/null redirects as they're common and relatively safe
+                            if pattern == '>' and '2>/dev/null' in cmd_str:
+                                continue
+                            raise ValueError(
+                                f"Command contains potentially dangerous pattern: {pattern}. "
+                                f"Consider using subprocess with list arguments instead of shell=True."
+                            )
                 
                 process = subprocess.Popen(
                     cmd_str,
@@ -2352,8 +2372,8 @@ class ManageApp(App):
             ["docker", "network", "ls"], log))
         registry.register("docker-volumes", lambda m, log: self._run_streaming(
             ["docker", "volume", "ls"], log))
-        registry.register("docker-restart-all", lambda m, log: self._run_streaming(
-            ["sh", "-c", "docker restart $(docker ps -q)"], log, shell=False))
+        # Note: Using safe method instead of shell substitution to prevent injection
+        registry.register("docker-restart-all", lambda m, log: self._run_docker_restart_all(log))
         
         # System commands
         registry.register("health", lambda m, log: self._run_health_check(log))
@@ -2438,10 +2458,8 @@ class ManageApp(App):
         registry.register("disk-mounts", lambda m, log: self._run_streaming(["mount"], log))
         registry.register("disk-io", lambda m, log: self._run_streaming(
             ["iostat", "-x", "1", "1"], log))
-        # Note: sudo required for du to read all directories (including root-owned)
-        registry.register("disk-largest", lambda m, log: self._run_streaming(
-            ["sudo", "sh", "-c", "du -ah / --max-depth=3 2>/dev/null | sort -rh | head -20"], 
-            log, shell=False))
+        # Note: Using safe method with Python piping instead of shell pipes to prevent injection
+        registry.register("disk-largest", lambda m, log: self._run_disk_largest(log))
         registry.register("disk-inodes", lambda m, log: self._run_streaming(["df", "-i"], log))
         registry.register("zfs-status", lambda m, log: self._run_streaming(["zpool", "status"], log))
         registry.register("zfs-list", lambda m, log: self._run_streaming(["zfs", "list"], log))
@@ -2912,6 +2930,191 @@ class ManageApp(App):
         
         # Execute command asynchronously
         self._command_executor.execute_async(cmd, shell=shell)
+    
+    def _run_docker_restart_all(self, output_log: OutputLog) -> None:
+        """
+        Restart all running Docker containers safely without shell substitution.
+        This avoids command injection risks from using $(docker ps -q).
+        """
+        def run_in_thread():
+            try:
+                # First, get list of running container IDs
+                self.call_from_thread(output_log.write_line, "Getting list of running containers...\n")
+                ps_result = subprocess.run(
+                    ["docker", "ps", "-q"],
+                    capture_output=True,
+                    text=True,
+                    timeout=10
+                )
+                
+                if ps_result.returncode != 0:
+                    self.call_from_thread(output_log.write_line, f"✗ Error getting container list: {ps_result.stderr}\n")
+                    self.call_from_thread(self._reset_ui_state)
+                    return
+                
+                container_ids = [cid.strip() for cid in ps_result.stdout.strip().split('\n') if cid.strip()]
+                
+                if not container_ids:
+                    self.call_from_thread(output_log.write_line, "No running containers to restart.\n")
+                    self.call_from_thread(self._reset_ui_state)
+                    return
+                
+                self.call_from_thread(output_log.write_line, f"Found {len(container_ids)} running container(s). Restarting...\n\n")
+                
+                # Restart each container individually (safer than shell substitution)
+                for container_id in container_ids:
+                    # Sanitize container ID (should only contain hex chars, but validate anyway)
+                    if not re.match(r'^[a-fA-F0-9]+$', container_id):
+                        self.call_from_thread(output_log.write_line, f"⚠ Skipping invalid container ID: {container_id}\n")
+                        continue
+                    
+                    self.call_from_thread(output_log.write_line, f"Restarting {container_id}...\n")
+                    restart_result = subprocess.run(
+                        ["docker", "restart", container_id],
+                        capture_output=True,
+                        text=True,
+                        timeout=30
+                    )
+                    
+                    if restart_result.returncode == 0:
+                        self.call_from_thread(output_log.write_line, f"✓ {container_id} restarted\n")
+                    else:
+                        self.call_from_thread(output_log.write_line, f"✗ Failed to restart {container_id}: {restart_result.stderr}\n")
+                
+                self.call_from_thread(output_log.write_line, "\n✓ All containers restarted\n")
+                self.call_from_thread(self._reset_ui_state)
+                
+            except subprocess.TimeoutExpired:
+                self.call_from_thread(output_log.write_line, "✗ Error: Command timed out\n")
+                self.call_from_thread(self._reset_ui_state)
+            except Exception as e:
+                self.call_from_thread(output_log.write_line, f"✗ Error: {e}\n")
+                self.call_from_thread(self._reset_ui_state)
+        
+        # Start spinner
+        self._get_spinner().start()
+        
+        # Run in thread
+        thread = threading.Thread(target=run_in_thread, daemon=True)
+        thread.start()
+    
+    def _run_disk_largest(self, output_log: OutputLog) -> None:
+        """
+        Find largest directories safely without shell pipes.
+        Uses Python to handle sorting and filtering instead of shell pipes.
+        """
+        def run_in_thread():
+            try:
+                self.call_from_thread(output_log.write_line, "Scanning disk usage (this may take a while)...\n\n")
+                
+                # Run du command (stderr redirected to /dev/null via subprocess)
+                du_process = subprocess.Popen(
+                    ["sudo", "du", "-ah", "/", "--max-depth=3"],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL,  # Redirect stderr to /dev/null
+                    text=True,
+                    bufsize=1
+                )
+                
+                # Read all output
+                lines = []
+                for line in du_process.stdout:
+                    lines.append(line.strip())
+                
+                du_process.wait()
+                
+                if du_process.returncode != 0:
+                    self.call_from_thread(output_log.write_line, f"✗ Error: du command failed\n")
+                    self.call_from_thread(self._reset_ui_state)
+                    return
+                
+                # Parse and sort in Python (safer than shell pipes)
+                parsed_lines = []
+                for line in lines:
+                    if not line:
+                        continue
+                    # Format: "size\tpath"
+                    parts = line.split('\t', 1)
+                    if len(parts) == 2:
+                        size_str, path = parts
+                        # Convert size to bytes for sorting
+                        try:
+                            # Parse size (e.g., "1.5G", "500M", "1024K")
+                            size_bytes = self._parse_size_to_bytes(size_str)
+                            parsed_lines.append((size_bytes, size_str, path))
+                        except ValueError:
+                            # If parsing fails, skip the line
+                            continue
+                
+                # Sort by size (descending) and take top 20
+                parsed_lines.sort(reverse=True, key=lambda x: x[0])
+                top_20 = parsed_lines[:20]
+                
+                # Output results
+                self.call_from_thread(output_log.write_line, "Top 20 largest directories:\n")
+                self.call_from_thread(output_log.write_line, "-" * 60 + "\n")
+                for size_bytes, size_str, path in top_20:
+                    self.call_from_thread(output_log.write_line, f"{size_str:>10}  {path}\n")
+                
+                self.call_from_thread(output_log.write_line, "\n✓ Scan complete\n")
+                self.call_from_thread(self._reset_ui_state)
+                
+            except subprocess.TimeoutExpired:
+                self.call_from_thread(output_log.write_line, "✗ Error: Command timed out\n")
+                self.call_from_thread(self._reset_ui_state)
+            except Exception as e:
+                self.call_from_thread(output_log.write_line, f"✗ Error: {e}\n")
+                self.call_from_thread(self._reset_ui_state)
+        
+        # Start spinner
+        self._get_spinner().start()
+        
+        # Run in thread
+        thread = threading.Thread(target=run_in_thread, daemon=True)
+        thread.start()
+    
+    def _parse_size_to_bytes(self, size_str: str) -> int:
+        """
+        Parse a size string (e.g., "1.5G", "500M", "1024K") to bytes.
+        
+        Args:
+            size_str: Size string with optional suffix (K, M, G, T)
+            
+        Returns:
+            Size in bytes
+        """
+        size_str = size_str.strip().upper()
+        
+        # Remove any non-digit/decimal/unit characters
+        if not size_str:
+            return 0
+        
+        # Find the unit
+        multipliers = {
+            'K': 1024,
+            'M': 1024 ** 2,
+            'G': 1024 ** 3,
+            'T': 1024 ** 4,
+        }
+        
+        # Try to find a unit suffix
+        unit = None
+        for u in ['T', 'G', 'M', 'K']:
+            if size_str.endswith(u):
+                unit = u
+                size_str = size_str[:-1]
+                break
+        
+        # Parse the number
+        try:
+            value = float(size_str)
+            if unit:
+                return int(value * multipliers[unit])
+            else:
+                # Assume bytes if no unit
+                return int(value)
+        except ValueError:
+            return 0
     
     def _rebuild_all_machines(self, output_log: OutputLog) -> None:
         """Rebuild all machine configurations."""
