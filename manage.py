@@ -1612,6 +1612,99 @@ class ManageApp(App):
         elif action == "stop_success":
             self.call_from_thread(spinner.stop_success)
     
+    # =============================================================================
+    # Helper Methods for Common Patterns
+    # =============================================================================
+    
+    def _get_spinner(self) -> Spinner:
+        """Get the spinner widget."""
+        return self.query_one("#spinner", Spinner)
+    
+    def _get_output_log(self) -> OutputLog:
+        """Get the output log widget."""
+        return self.query_one("#output-log", OutputLog)
+    
+    def _write_output(self, text: str, thread_safe: bool = False) -> None:
+        """
+        Write text to output log.
+        
+        Args:
+            text: Text to write
+            thread_safe: If True, use call_from_thread for thread safety
+        """
+        output_log = self._get_output_log()
+        if thread_safe:
+            self.call_from_thread(output_log.write_line, text)
+        else:
+            output_log.write_line(text)
+    
+    def _write_separator(self, thread_safe: bool = False) -> None:
+        """Write a separator line to output log."""
+        self._write_output("\n" + "-" * 60 + "\n", thread_safe=thread_safe)
+    
+    def _handle_error(self, message: str, thread_safe: bool = False) -> None:
+        """
+        Handle an error: stop spinner and write error message.
+        
+        Args:
+            message: Error message to display
+            thread_safe: If True, use call_from_thread for thread safety
+        """
+        spinner = self._get_spinner()
+        if thread_safe:
+            self.call_from_thread(spinner.stop)
+            self.call_from_thread(self._get_output_log().write_line, message)
+        else:
+            spinner.stop()
+            self._write_output(message)
+    
+    def _handle_success(self, message: Optional[str] = None, thread_safe: bool = False) -> None:
+        """
+        Handle success: stop spinner with success indicator and optionally write message.
+        
+        Args:
+            message: Optional success message to display
+            thread_safe: If True, use call_from_thread for thread safety
+        """
+        spinner = self._get_spinner()
+        if thread_safe:
+            self.call_from_thread(spinner.stop_success)
+            if message:
+                self.call_from_thread(self._get_output_log().write_line, message)
+        else:
+            spinner.stop_success()
+            if message:
+                self._write_output(message)
+    
+    def _handle_command_error(self, cmd_name: str, error: Exception, 
+                              include_traceback: bool = False, thread_safe: bool = False) -> None:
+        """
+        Handle command execution error with consistent formatting.
+        
+        Args:
+            cmd_name: Name of the command that failed
+            error: Exception that occurred
+            include_traceback: Whether to include full traceback
+            thread_safe: If True, use call_from_thread for thread safety
+        """
+        error_msg = f"✗ Error executing {cmd_name}: {error}\n"
+        if include_traceback:
+            import traceback
+            error_msg += f"Traceback:\n{traceback.format_exc()}\n"
+        self._handle_error(error_msg, thread_safe=thread_safe)
+    
+    def _handle_command_not_found(self, cmd_name: str, thread_safe: bool = False) -> None:
+        """
+        Handle command not found error with helpful message.
+        
+        Args:
+            cmd_name: Name of the command that wasn't found
+            thread_safe: If True, use call_from_thread for thread safety
+        """
+        error_msg = f"✗ Error: Command not found: {cmd_name}\n"
+        error_msg += "Make sure the command is installed and available in PATH.\n"
+        self._handle_error(error_msg, thread_safe=thread_safe)
+    
     def _detect_current_machine(self) -> Optional[str]:
         """Detect the current machine from hostname."""
         try:
@@ -1782,8 +1875,7 @@ class ManageApp(App):
         if not shutil.which("virsh"):
             output_log.write_line("Error: virsh command not found.\n")
             output_log.write_line("Make sure libvirt is installed: nix-shell -p libvirt\n")
-            spinner = self.query_one("#spinner", Spinner)
-            spinner.stop()
+            self._get_spinner().stop()
         else:
             self._run_vm_list_command(output_log, all_vms=True)
     
@@ -1983,7 +2075,7 @@ class ManageApp(App):
         self._update_machine_display()
     
     def action_clear_output(self) -> None:
-        output_log = self.query_one("#output-log", OutputLog)
+        output_log = self._get_output_log()
         output_log.clear()
         output_log.write_line("Output cleared.\n")
     
@@ -1999,8 +2091,8 @@ class ManageApp(App):
     
     def _execute_action(self, action_id: str, title: str, dangerous: bool, requires_machine: bool) -> None:
         """Execute an action."""
-        output_log = self.query_one("#output-log", OutputLog)
-        spinner = self.query_one("#spinner", Spinner)
+        output_log = self._get_output_log()
+        spinner = self._get_spinner()
         
         # Confirmation for dangerous actions
         if dangerous:
@@ -2019,7 +2111,7 @@ class ManageApp(App):
                     if requires_machine:
                         output_log.write_line(f"Machine: {machine}\n")
                     
-                    output_log.write_line("-" * 60 + "\n")
+                    self._write_separator()
                     
                     # Execute the appropriate command
                     self._run_action(action_id, machine, output_log)
@@ -2064,13 +2156,9 @@ class ManageApp(App):
         try:
             self._command_registry.execute(action_id, machine, output_log)
         except KeyError:
-            output_log.write_line(f"Unknown action: {action_id}\n")
-            spinner = self.query_one("#spinner", Spinner)
-            spinner.stop()
+            self._handle_error(f"Unknown action: {action_id}\n")
         except Exception as e:
-            output_log.write_line(f"Error executing action '{action_id}': {e}\n")
-            spinner = self.query_one("#spinner", Spinner)
-            spinner.stop()
+            self._handle_command_error(f"action '{action_id}'", e)
     
     def _get_file_hash(self, file_path: Path) -> Optional[str]:
         """Get SHA256 hash of a file, or None if file doesn't exist."""
@@ -2145,18 +2233,11 @@ class ManageApp(App):
                 
             except FileNotFoundError:
                 def handle_error():
-                    spinner = self.query_one("#spinner", Spinner)
-                    spinner.stop()
-                    output_log.write_line("✗ Error: Command not found: git\n")
-                    output_log.write_line("Make sure git is installed and available in PATH.\n")
+                    self._handle_command_not_found("git", thread_safe=False)
                 self.call_from_thread(handle_error)
             except Exception as e:
                 def handle_exception():
-                    spinner = self.query_one("#spinner", Spinner)
-                    spinner.stop()
-                    output_log.write_line(f"✗ Error executing command: {e}\n")
-                    import traceback
-                    output_log.write_line(f"Traceback:\n{traceback.format_exc()}\n")
+                    self._handle_command_error("git pull", e, include_traceback=True, thread_safe=False)
                 self.call_from_thread(handle_exception)
         
         thread = threading.Thread(target=run_in_thread, daemon=True)
@@ -2169,8 +2250,7 @@ class ManageApp(App):
     def _run_streaming(self, cmd: List[str], output_log: OutputLog, shell: bool = False) -> None:
         """Run a command and stream output to the log using CommandExecutor."""
         # Start spinner
-        spinner = self.query_one("#spinner", Spinner)
-        spinner.start()
+        self._get_spinner().start()
         
         # Execute command asynchronously
         self._command_executor.execute_async(cmd, shell=shell)
@@ -2327,9 +2407,8 @@ class ManageApp(App):
         for machine in self.machines_list:
             status = "(Current)" if machine == self.current_machine else "(Available)"
             output_log.write_line(f"  💻 {machine} {status}\n")
-        output_log.write_line("\n" + "-" * 60 + "\n")
-        spinner = self.query_one("#spinner", Spinner)
-        spinner.stop_success()
+        self._write_separator()
+        self._handle_success()
     
     def _list_devshells(self, output_log: OutputLog) -> None:
         """List all available development shells from the flake."""
@@ -2346,8 +2425,7 @@ class ManageApp(App):
                 
                 if result.returncode != 0:
                     self.call_from_thread(output_log.write_line, f"Error running nix flake show:\n{result.stderr}\n")
-                    spinner = self.call_from_thread(self.query_one, "#spinner", Spinner)
-                    self.call_from_thread(spinner.stop)
+                    self.call_from_thread(self._get_spinner().stop)
                     return
                 
                 # Parse JSON output
@@ -2355,8 +2433,7 @@ class ManageApp(App):
                     flake_data = json.loads(result.stdout)
                 except json.JSONDecodeError as e:
                     self.call_from_thread(output_log.write_line, f"Error parsing flake output: {e}\n")
-                    spinner = self.call_from_thread(self.query_one, "#spinner", Spinner)
-                    self.call_from_thread(spinner.stop)
+                    self.call_from_thread(self._get_spinner().stop)
                     return
                 
                 # Extract devShells
@@ -2364,8 +2441,7 @@ class ManageApp(App):
                 
                 if not devshells:
                     self.call_from_thread(output_log.write_line, "No devShells found in this flake.\n")
-                    spinner = self.call_from_thread(self.query_one, "#spinner", Spinner)
-                    self.call_from_thread(spinner.stop_success)
+                    self.call_from_thread(self._get_spinner().stop_success)
                     return
                 
                 self.call_from_thread(output_log.write_line, "Available Development Shells:\n\n")
@@ -2382,18 +2458,15 @@ class ManageApp(App):
                             self.call_from_thread(output_log.write_line, f"  🐚 {shell_name}\n")
                         self.call_from_thread(output_log.write_line, f"      Enter with: nix develop .#{shell_name}\n")
                 
-                self.call_from_thread(output_log.write_line, "\n" + "-" * 60 + "\n")
-                spinner = self.call_from_thread(self.query_one, "#spinner", Spinner)
-                self.call_from_thread(spinner.stop_success)
+                self.call_from_thread(lambda: self._write_separator())
+                self.call_from_thread(self._get_spinner().stop_success)
                 
             except subprocess.TimeoutExpired:
                 self.call_from_thread(output_log.write_line, "Error: Command timed out\n")
-                spinner = self.call_from_thread(self.query_one, "#spinner", Spinner)
-                self.call_from_thread(spinner.stop)
+                self.call_from_thread(self._get_spinner().stop)
             except Exception as e:
                 self.call_from_thread(output_log.write_line, f"Error listing devShells: {e}\n")
-                spinner = self.call_from_thread(self.query_one, "#spinner", Spinner)
-                self.call_from_thread(spinner.stop)
+                self.call_from_thread(self._get_spinner().stop)
         
         thread = threading.Thread(target=run_in_thread, daemon=True)
         thread.start()
@@ -2424,9 +2497,8 @@ class ManageApp(App):
             output_log.write_line("\nMemory:\n")
             output_log.write_line(result.stdout)
             
-            output_log.write_line("\n" + "-" * 60 + "\n")
-            spinner = self.query_one("#spinner", Spinner)
-            spinner.stop_success()
+            self._write_separator()
+            self._handle_success()
     
     def _run_system_info(self, output_log: OutputLog) -> None:
         """Display system information."""
