@@ -1,7 +1,7 @@
 #!/usr/bin/env nix-shell
 #! nix-shell -i python3 -p python3 python3Packages.rich python3Packages.textual python3Packages.pyyaml
 """
-manage.py - System Management Console v1.11
+manage.py - System Management Console v1.12
 A beautiful terminal user interface for managing NixOS, Docker, System, Git, Network, Services, and Storage.
 """
 
@@ -60,7 +60,7 @@ except ImportError:
 # Version Information
 # =============================================================================
 
-VERSION = "1.11"
+VERSION = "1.12"
 
 
 # =============================================================================
@@ -1734,6 +1734,7 @@ class ManageApp(App):
         Binding("8", "tab_8", "VMs", show=False),
         Binding("m", "cycle_machine", "Machine"),
         Binding("c", "clear_output", "Clear"),
+        Binding("r", "retry_action", "Retry", show=False),
     ]
     
     current_tab = reactive("system")
@@ -1751,6 +1752,7 @@ class ManageApp(App):
         self._current_process_exit_code = None
         self._pending_dangerous_action = None  # (action_id, title, requires_machine)
         self._dangerous_confirmation_count = 0
+        self._last_failed_action: Optional[Tuple[str, Optional[str]]] = None  # (action_id, machine)
         
         # Initialize command registry
         self._command_registry = CommandRegistry()
@@ -1819,12 +1821,11 @@ class ManageApp(App):
             message: Error message to display
             thread_safe: If True, use call_from_thread for thread safety
         """
-        spinner = self._get_spinner()
         if thread_safe:
-            self.call_from_thread(spinner.stop)
+            self.call_from_thread(self._reset_ui_state)
             self.call_from_thread(self._get_output_log().write_line, message)
         else:
-            spinner.stop()
+            self._reset_ui_state()
             self._write_output(message)
     
     def _handle_success(self, message: Optional[str] = None, thread_safe: bool = False) -> None:
@@ -1873,6 +1874,59 @@ class ManageApp(App):
         error_msg = f"✗ Error: Command not found: {cmd_name}\n"
         error_msg += "Make sure the command is installed and available in PATH.\n"
         self._handle_error(error_msg, thread_safe=thread_safe)
+    
+    def _reset_ui_state(self) -> None:
+        """
+        Reset UI state to a consistent state after errors.
+        This ensures the UI is never left in an inconsistent state.
+        """
+        # Stop spinner if it's running
+        try:
+            spinner = self._get_spinner()
+            if spinner._spinning:
+                spinner.stop()
+        except Exception:
+            pass
+        
+        # Clear pending dangerous actions
+        self._pending_dangerous_action = None
+        self._dangerous_confirmation_count = 0
+        
+        # Clear process tracking
+        self._current_process = None
+        self._current_process_exit_code = None
+    
+    def _retry_last_action(self) -> None:
+        """
+        Retry the last failed action.
+        """
+        if self._last_failed_action is None:
+            output_log = self._get_output_log()
+            output_log.write_line("No previous action to retry.\n")
+            return
+        
+        action_id, machine = self._last_failed_action
+        output_log = self._get_output_log()
+        
+        # Get action details
+        action_list = self._get_current_action_list()
+        if action_list:
+            actions = action_list.actions
+            for act_id, title, desc, dangerous, requires_machine in actions:
+                if act_id == action_id:
+                    output_log.write_line(f"Retrying: {title}\n")
+                    if machine:
+                        output_log.write_line(f"Machine: {machine}\n")
+                    output_log.write_line("-" * 60 + "\n")
+                    
+                    # Reset state before retry
+                    self._reset_ui_state()
+                    
+                    # Execute the action
+                    self._run_action(action_id, machine, output_log)
+                    return
+        
+        output_log.write_line(f"Could not find action '{action_id}' to retry.\n")
     
     def _check_command_available(self, cmd: str) -> bool:
         """
@@ -1986,7 +2040,8 @@ class ManageApp(App):
                 output_log.write_line(f"    Or add to configuration.nix: pkgs.{package}\n")
             
             output_log.write_line("\nAfter installing, try the action again.\n")
-            self._get_spinner().stop()
+            output_log.write_line("Press 'r' to retry after installing dependencies.\n")
+            self._reset_ui_state()
             return False
         
         return True
@@ -2361,6 +2416,10 @@ class ManageApp(App):
         output_log.clear()
         output_log.write_line("Output cleared.\n")
     
+    def action_retry_action(self) -> None:
+        """Retry the last failed action."""
+        self._retry_last_action()
+    
     def action_execute_action(self) -> None:
         action_list = self._get_current_action_list()
         if action_list:
@@ -2437,14 +2496,26 @@ class ManageApp(App):
         """Run the actual command for an action using the command registry."""
         # Check dependencies before executing
         if not self._check_dependencies(action_id, output_log):
+            # Store failed action for retry (dependency issue)
+            self._last_failed_action = (action_id, machine)
             return
         
         try:
             self._command_registry.execute(action_id, machine, output_log)
+            # Clear last failed action on success
+            self._last_failed_action = None
         except KeyError:
             self._handle_error(f"Unknown action: {action_id}\n")
+            # Store failed action for retry
+            self._last_failed_action = (action_id, machine)
+            # Add retry hint
+            output_log.write_line("Press 'r' to retry.\n")
         except Exception as e:
             self._handle_command_error(f"action '{action_id}'", e)
+            # Store failed action for retry
+            self._last_failed_action = (action_id, machine)
+            # Add retry hint
+            output_log.write_line("Press 'r' to retry.\n")
     
     def _get_file_hash(self, file_path: Path) -> Optional[str]:
         """Get SHA256 hash of a file, or None if file doesn't exist."""
