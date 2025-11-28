@@ -1,7 +1,7 @@
 #!/usr/bin/env nix-shell
 #! nix-shell -i python3 -p python3 python3Packages.rich python3Packages.textual python3Packages.pyyaml
 """
-manage.py - System Management Console v1.15
+manage.py - System Management Console
 A beautiful terminal user interface for managing NixOS, Docker, System, Git, Network, Services, and Storage.
 """
 
@@ -65,7 +65,12 @@ except ImportError:
 # Version Information
 # =============================================================================
 
-VERSION = "1.15"
+try:
+    from version import __version__
+    VERSION = __version__
+except ImportError:
+    # Fallback if version.py doesn't exist
+    VERSION = "1.15"
 
 
 # =============================================================================
@@ -879,6 +884,14 @@ class ActionList(Static, can_focus=True):
         """
         self._search_query = query.lower().strip()
         
+        # Ensure _all_actions is populated - if empty, use current actions
+        if not self._all_actions:
+            if self.actions:
+                self._all_actions = list(self.actions)
+            else:
+                # If both are empty, can't filter - return early
+                return
+        
         if not self._search_query:
             # No filter - show all actions
             self.actions = list(self._all_actions)
@@ -893,8 +906,11 @@ class ActionList(Static, can_focus=True):
             self.actions = filtered
         
         # Reset selected index if it's out of bounds
-        if self.selected_index >= len(self.actions):
-            self.selected_index = max(0, len(self.actions) - 1)
+        if len(self.actions) > 0:
+            if self.selected_index >= len(self.actions):
+                self.selected_index = max(0, len(self.actions) - 1)
+        else:
+            self.selected_index = 0
         
         # Rebuild the UI - find existing container or create new one
         try:
@@ -906,14 +922,34 @@ class ActionList(Static, can_focus=True):
                 item.remove()
         except Exception:
             # Container doesn't exist, remove all children and create new container
-            self.remove_children()
-            container = ScrollableContainer(id=f"action-scroll-{self.category}")
-            self.mount(container)
+            try:
+                self.remove_children()
+                container = ScrollableContainer(id=f"action-scroll-{self.category}")
+                self.mount(container)
+            except Exception:
+                # If mounting fails, try to get container again
+                try:
+                    container = self.query_one(f"#action-scroll-{self.category}", ScrollableContainer)
+                except Exception:
+                    # Last resort - return without updating UI
+                    return
         
         # Add filtered action items - wait a moment to ensure old items are fully removed
         def add_items():
             try:
                 container = self.query_one(f"#action-scroll-{self.category}", ScrollableContainer)
+                if not container:
+                    return
+                
+                # Only proceed if we have actions to add
+                if not self.actions or len(self.actions) == 0:
+                    # If no actions, try to restore from _all_actions
+                    if self._all_actions and len(self._all_actions) > 0:
+                        self.actions = list(self._all_actions)
+                    else:
+                        # No actions available - return without updating
+                        return
+                
                 for idx, (action_id, title, desc, dangerous, requires_machine) in enumerate(self.actions):
                     action_item = ActionItem(
                         action_id, title, desc, dangerous, self.category, idx,
@@ -922,9 +958,27 @@ class ActionList(Static, can_focus=True):
                         classes="action-item"
                     )
                     container.mount(action_item)
-                self._highlight_selected()
-            except Exception:
-                pass
+                
+                if len(self.actions) > 0:
+                    self._highlight_selected()
+            except Exception as e:
+                # If something goes wrong, try to restore from _all_actions one more time
+                try:
+                    if self._all_actions and len(self._all_actions) > 0:
+                        self.actions = list(self._all_actions)
+                        container = self.query_one(f"#action-scroll-{self.category}", ScrollableContainer)
+                        if container:
+                            for idx, (action_id, title, desc, dangerous, requires_machine) in enumerate(self.actions):
+                                action_item = ActionItem(
+                                    action_id, title, desc, dangerous, self.category, idx,
+                                    search_query="",
+                                    id=f"action-{self.category}-{idx}",
+                                    classes="action-item"
+                                )
+                                container.mount(action_item)
+                            self._highlight_selected()
+                except Exception:
+                    pass
         
         # Use call_after_refresh to ensure old items are removed before adding new ones
         self.call_after_refresh(add_items)
@@ -1233,6 +1287,14 @@ class HelpScreen(ModalScreen):
     def compose(self) -> ComposeResult:
         with Container(id="help-container"):
             yield Static("Keyboard Shortcuts - Help", classes="help-title")
+            
+            # Show version information
+            try:
+                from version import __version__
+                version_text = f"Version {__version__}"
+            except ImportError:
+                version_text = "Version 1.15"
+            yield Static(f"[dim]{version_text}[/dim]", classes="help-section-title")
             
             with ScrollableContainer():
                 # Navigation
@@ -3417,21 +3479,68 @@ class ManageApp(App):
             pass
     
     def action_clear_search(self) -> None:
-        """Clear and hide the search input."""
+        """Clear and hide the search input. Only works if search is currently active."""
+        # Only clear search if the search bar is actually visible/active
+        if not self._search_active:
+            return  # Do nothing if search isn't active
+        
         try:
             search_input = self.query_one("#search-input", Input)
+            # Double-check that search input is visible
+            if "visible" not in search_input.classes:
+                return  # Search isn't visible, don't do anything
+            
             search_input.value = ""
             search_input.remove_class("visible")
             self._search_active = False
-            # Clear filter
+            # Clear filter and restore all actions
             action_list = self._get_current_action_list()
             if action_list:
-                action_list.filter_actions("")
+                # Ensure _all_actions is set - if not, reload actions for current category
+                if not hasattr(action_list, '_all_actions') or not action_list._all_actions:
+                    # Reload actions for current category
+                    actions = self._get_actions_for_category(self.current_tab)
+                    action_list.set_all_actions(actions)
+                    action_list.actions = list(actions)
+                
+                # Ensure we have actions to show - if still empty, reload
+                if not action_list._all_actions or len(action_list._all_actions) == 0:
+                    actions = self._get_actions_for_category(self.current_tab)
+                    action_list.set_all_actions(actions)
+                    action_list.actions = list(actions)
+                
+                # Now clear filter to show all actions
+                # Set actions directly first to ensure they're available
+                if action_list._all_actions and len(action_list._all_actions) > 0:
+                    action_list.actions = list(action_list._all_actions)
+                    action_list._search_query = ""
+                    # Rebuild the UI by calling filter_actions which will restore all items
+                    action_list.filter_actions("")
+                else:
+                    # If we still don't have actions, reload the entire tab to force a rebuild
+                    current_idx = self._get_current_tab_index()
+                    if current_idx is not None:
+                        # Temporarily switch to force reload
+                        other_idx = (current_idx + 1) % len(TABS) if len(TABS) > 1 else current_idx
+                        if other_idx != current_idx:
+                            self._switch_to_tab(other_idx)
+                            self.call_after_refresh(lambda: self._switch_to_tab(current_idx))
+                        else:
+                            # Only one tab, just reload it
+                            self._switch_to_tab(current_idx)
             # Return focus to action list
             if action_list:
                 self.set_focus(action_list)
-        except Exception:
-            pass
+        except Exception as e:
+            # If something goes wrong, try to reload the tab's actions by switching tabs
+            try:
+                current_idx = self._get_current_tab_index()
+                if current_idx is not None:
+                    # Switch away and back to reload
+                    self._switch_to_tab((current_idx + 1) % len(TABS))
+                    self.call_after_refresh(lambda: self._switch_to_tab(current_idx))
+            except Exception:
+                pass
     
     @on(Input.Changed, "#search-input")
     def on_search_changed(self, event: Input.Changed) -> None:

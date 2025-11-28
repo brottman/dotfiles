@@ -11,7 +11,7 @@
     # You should only have ONE active at a time. Comment out the ones you don't need.
     
     # Option 1: Individual VM Services (Simple, explicit)
-    ./vms/vms-option1.nix
+    #./vms/vms-option1.nix
     
     # Option 2: Helper Function + List (Scalable, clean)
     #./vms/vms-option2.nix
@@ -229,6 +229,8 @@
     vscode-fhs
     wine
     zoom-us
+    qimgv
+    gthumb
   ];
 
   # Environment variables
