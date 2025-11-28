@@ -1,7 +1,7 @@
 #!/usr/bin/env nix-shell
 #! nix-shell -i python3 -p python3 python3Packages.rich python3Packages.textual
 """
-manage.py - System Management Console v1.00
+manage.py - System Management Console v1.01
 A beautiful terminal user interface for managing NixOS, Docker, System, Git, Network, Services, and Storage.
 """
 
@@ -55,7 +55,7 @@ except ImportError:
 # Version Information
 # =============================================================================
 
-VERSION = "1.00"
+VERSION = "1.01"
 
 
 # =============================================================================
