@@ -83,17 +83,45 @@
           ];
         };
 
-        # Python development shell
-        python = pkgs.mkShell {
+        # Python 3.12 development shell
+        python312 = pkgs.mkShell {
           buildInputs = with pkgs; [
-            python3
-            python3Packages.pip
-            python3Packages.setuptools
-            python3Packages.wheel
-            python3Packages.virtualenv
-            python3Packages.black
-            python3Packages.pytest
-            python3Packages.ipython
+            python312
+            python312Packages.pip
+            python312Packages.setuptools
+            python312Packages.wheel
+            python312Packages.virtualenv
+            python312Packages.black
+            python312Packages.pytest
+            python312Packages.ipython
+          ];
+        };
+
+        # Python 3.13 development shell
+        python313 = pkgs.mkShell {
+          buildInputs = with pkgs; [
+            python313
+            python313Packages.pip
+            python313Packages.setuptools
+            python313Packages.wheel
+            python313Packages.virtualenv
+            python313Packages.black
+            python313Packages.pytest
+            python313Packages.ipython
+          ];
+        };
+
+        # Python 3.14 development shell
+        python314 = pkgs.mkShell {
+          buildInputs = with pkgs; [
+            python314
+            python314Packages.pip
+            python314Packages.setuptools
+            python314Packages.wheel
+            python314Packages.virtualenv
+            python314Packages.black
+            python314Packages.pytest
+            python314Packages.ipython
           ];
         };
       };
