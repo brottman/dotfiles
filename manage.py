@@ -263,9 +263,10 @@ def _get_actions() -> Dict[str, List[Tuple[str, str, str, bool, bool]]]:
     return actions if actions else _get_default_actions()
 
 
-# Load tabs and actions (from config file or defaults)
+# Load tabs at startup (needed for UI)
 TABS = _get_tabs()
-ACTIONS = _get_actions()
+
+# Actions are loaded lazily when tabs are accessed (see ManageApp._get_actions_for_category)
 
 MACHINES = ["brian-laptop", "superheavy", "docker", "backup"]
 
@@ -790,11 +791,12 @@ class ActionList(Static, can_focus=True):
             self.requires_machine = requires_machine
             super().__init__()
     
-    def __init__(self, category: str, **kwargs: Any) -> None:
+    def __init__(self, category: str, actions: Optional[List[Tuple[str, str, str, bool, bool]]] = None, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.category = category
         self.selected_index = 0
-        self.actions = ACTIONS.get(category, [])
+        # Actions are passed in from the app (loaded lazily)
+        self.actions = actions if actions is not None else []
     
     def compose(self) -> ComposeResult:
         with ScrollableContainer(id=f"action-scroll-{self.category}"):
@@ -1928,6 +1930,9 @@ class ManageApp(App):
             error_log_path=error_log_path
         )
         
+        # Cache for lazily loaded actions (category -> actions list)
+        self._actions_cache: Dict[str, List[Tuple[str, str, str, bool, bool]]] = {}
+        
         self._register_commands()
     
     def _output_callback(self, line: str) -> None:
@@ -2671,7 +2676,10 @@ class ManageApp(App):
                 # Left side: Action panel (changes based on tab selection)
                 with Vertical(id="action-panel"):
                     # We'll dynamically update this based on tab selection
-                    yield ActionList("system", id="actions-current")
+                    # Load actions lazily for the initial tab
+                    # Note: We can't call _get_actions_for_category here since compose() runs before __init__ completes
+                    # So we'll use a placeholder and update it in on_mount
+                    yield ActionList("system", actions=[], id="actions-current")
                     
                     yield Static(
                         "Select an action to see its description",
@@ -2699,9 +2707,54 @@ class ManageApp(App):
         """Set focus on the action list after app is fully mounted."""
         try:
             action_list = self.query_one("#actions-current", ActionList)
+            # Load actions for the initial tab if not already loaded
+            if not action_list.actions:
+                actions = self._get_actions_for_category("system")
+                action_list.actions = actions
+                # Rebuild the action list UI
+                action_list.remove_children()
+                with action_list.app.batch_update():
+                    for idx, (action_id, title, desc, dangerous, requires_machine) in enumerate(actions):
+                        action_item = ActionItem(
+                            action_id, title, desc, dangerous, "system", idx,
+                            id=f"action-system-{idx}",
+                            classes="action-item"
+                        )
+                        action_list.mount(action_item)
+                action_list._highlight_selected()
             self.set_focus(action_list)
         except Exception:
             pass
+    
+    def _get_actions_for_category(self, category: str) -> List[Tuple[str, str, str, bool, bool]]:
+        """
+        Get actions for a category, loading lazily and caching results.
+        
+        Args:
+            category: Category/tab ID
+            
+        Returns:
+            List of action tuples (id, title, desc, dangerous, requires_machine)
+        """
+        # Check cache first
+        if category in self._actions_cache:
+            return self._actions_cache[category]
+        
+        # Load actions for this category
+        config_path = self.flake_path / "manage-actions.yaml"
+        _, actions = _load_config_from_yaml(config_path)
+        
+        if actions and category in actions:
+            category_actions = actions[category]
+        else:
+            # Fall back to defaults
+            default_actions = _get_default_actions()
+            category_actions = default_actions.get(category, [])
+        
+        # Cache the result
+        self._actions_cache[category] = category_actions
+        
+        return category_actions
     
     def _get_current_action_list(self) -> Optional[ActionList]:
         """Get the ActionList for the current tab."""
@@ -2751,7 +2804,9 @@ class ManageApp(App):
                 self.set_timer(0.05, mount_new_list)
             except Exception:
                 # Old one is gone, safe to mount new one
-                new_action_list = ActionList(tab_id, id="actions-current")
+                # Load actions lazily for this category
+                actions = self._get_actions_for_category(tab_id)
+                new_action_list = ActionList(tab_id, actions=actions, id="actions-current")
                 action_panel.mount(new_action_list)
                 # Set focus on the new action list after it's fully mounted
                 self.call_after_refresh(lambda: self.set_focus(new_action_list))
