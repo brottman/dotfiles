@@ -2,7 +2,7 @@
 {
   imports = [ ./obs-studio.nix ];
   # Required by Home Manager; set once and bump only after reading release notes.
-  home.stateVersion = "25.05";
+  home.stateVersion = "26.05";
   
   # Autostart seafile-client
   systemd.user.services.seafile-client = {
