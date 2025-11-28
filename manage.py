@@ -2071,6 +2071,49 @@ class ManageApp(App):
         """
         return shutil.which(cmd) is not None
     
+    def _check_sudo_available(self) -> bool:
+        """
+        Check if sudo is available and the user can use it.
+        
+        Returns:
+            True if sudo is available, False otherwise
+        """
+        if not shutil.which("sudo"):
+            return False
+        
+        # Check if user can use sudo (non-interactive check)
+        try:
+            result = subprocess.run(
+                ["sudo", "-n", "true"],
+                capture_output=True,
+                timeout=5,
+                text=True
+            )
+            # If -n works, sudo is available and credentials are cached
+            # If it fails with "password required", sudo is available but needs auth
+            # If it fails otherwise, sudo might not be configured
+            return True  # sudo command exists, even if auth is needed
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            return False
+    
+    def _check_sudo_auth_cached(self) -> bool:
+        """
+        Check if sudo credentials are cached (non-interactive sudo works).
+        
+        Returns:
+            True if sudo -n works, False otherwise
+        """
+        try:
+            result = subprocess.run(
+                ["sudo", "-n", "true"],
+                capture_output=True,
+                timeout=5,
+                text=True
+            )
+            return result.returncode == 0
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            return False
+    
     def _get_required_commands(self, action_id: str) -> List[str]:
         """
         Get list of required commands for an action.
@@ -2189,6 +2232,7 @@ class ManageApp(App):
     def _check_dependencies(self, action_id: str, output_log: OutputLog) -> bool:
         """
         Check if all required dependencies for an action are available.
+        Also checks for sudo if the action requires it.
         
         Args:
             action_id: Action identifier
@@ -2202,6 +2246,21 @@ class ManageApp(App):
         if not required_commands:
             # No dependencies required
             return True
+        
+        # Check if any command requires sudo
+        sudo_required = any("sudo" in cmd for cmd in required_commands) or any(
+            action_id in ["switch", "boot", "gc", "sys-reboot", "sys-shutdown", 
+                         "net-firewall", "svc-reload", "disk-largest"]
+        )
+        
+        if sudo_required and not self._check_sudo_available():
+            output_log.write_line("✗ Error: sudo is required but not available\n")
+            output_log.write_line("\nTo install sudo on NixOS:\n")
+            output_log.write_line("  Add to configuration.nix:\n")
+            output_log.write_line("    security.sudo.enable = true;\n")
+            output_log.write_line("  Then rebuild: nixos-rebuild switch\n")
+            self._reset_ui_state()
+            return False
         
         missing = [cmd for cmd in required_commands if not self._check_command_available(cmd)]
         
@@ -2258,8 +2317,10 @@ class ManageApp(App):
         registry = self._command_registry
         
         # NixOS commands
+        # Note: sudo required for nixos-rebuild to modify system configuration
         registry.register("switch", lambda m, log: self._run_streaming(
             ["sudo", "nixos-rebuild", "switch", "--flake", f".#{m}"], log))
+        # Note: sudo required for nixos-rebuild to modify boot configuration
         registry.register("boot", lambda m, log: self._run_streaming(
             ["sudo", "nixos-rebuild", "boot", "--flake", f".#{m}"], log))
         registry.register("update-nixpkgs", lambda m, log: self._run_streaming(
@@ -2267,6 +2328,7 @@ class ManageApp(App):
         registry.register("rebuild-all", lambda m, log: self._rebuild_all_machines(log))
         registry.register("status", lambda m, log: self._run_streaming(
             ["nixos-rebuild", "list-generations"], log))
+        # Note: sudo required for nix-collect-garbage to delete system-wide store paths
         registry.register("gc", lambda m, log: self._run_streaming(
             ["sudo", "nix-collect-garbage", "-d"], log))
         registry.register("list", lambda m, log: self._list_machines(log))
@@ -2306,8 +2368,10 @@ class ManageApp(App):
             ["journalctl", "-n", "50", "--no-pager"], log))
         registry.register("sys-boot-logs", lambda m, log: self._run_streaming(
             ["journalctl", "-b", "-n", "50", "--no-pager"], log))
+        # Note: sudo required for systemctl reboot (system-level operation)
         registry.register("sys-reboot", lambda m, log: self._run_streaming(
             ["sudo", "systemctl", "reboot"], log))
+        # Note: sudo required for systemctl poweroff (system-level operation)
         registry.register("sys-shutdown", lambda m, log: self._run_streaming(
             ["sudo", "systemctl", "poweroff"], log))
         
@@ -2339,6 +2403,7 @@ class ManageApp(App):
             ["traceroute", "-m", "15", "8.8.8.8"], log))
         registry.register("net-wifi", lambda m, log: self._run_streaming(
             ["nmcli", "device", "wifi", "list"], log))
+        # Note: sudo required for iptables to read firewall rules (kernel-level access)
         registry.register("net-firewall", lambda m, log: self._run_streaming(
             ["sudo", "iptables", "-L", "-n"], log))
         registry.register("net-bandwidth", lambda m, log: self._run_bandwidth_test(log))
@@ -2352,6 +2417,7 @@ class ManageApp(App):
             ["systemctl", "--failed", "--no-pager"], log))
         registry.register("svc-timers", lambda m, log: self._run_streaming(
             ["systemctl", "list-timers", "--no-pager"], log))
+        # Note: sudo required for systemctl daemon-reload (reloads systemd configuration)
         registry.register("svc-reload", lambda m, log: self._run_streaming(
             ["sudo", "systemctl", "daemon-reload"], log))
         registry.register("svc-nginx", lambda m, log: self._run_streaming(
@@ -2372,6 +2438,7 @@ class ManageApp(App):
         registry.register("disk-mounts", lambda m, log: self._run_streaming(["mount"], log))
         registry.register("disk-io", lambda m, log: self._run_streaming(
             ["iostat", "-x", "1", "1"], log))
+        # Note: sudo required for du to read all directories (including root-owned)
         registry.register("disk-largest", lambda m, log: self._run_streaming(
             ["sudo", "sh", "-c", "du -ah / --max-depth=3 2>/dev/null | sort -rh | head -20"], 
             log, shell=False))
@@ -2876,7 +2943,15 @@ class ManageApp(App):
                     self.call_from_thread(output_log.write_line, "✓ Lock file is up to date\n\n")
             else:
                 # If update fails due to permissions, try with sudo
+                # Note: sudo needed if flake.lock is owned by root (e.g., after previous sudo operation)
                 if "Permission denied" in update_result.stderr:
+                    # Check if sudo is available before attempting
+                    if not self._check_sudo_available():
+                        self.call_from_thread(output_log.write_line, "✗ Permission denied and sudo is not available\n")
+                        self.call_from_thread(output_log.write_line, "  Please fix flake.lock ownership manually:\n")
+                        self.call_from_thread(output_log.write_line, "  sudo chown $USER:$USER flake.lock\n")
+                        return
+                    
                     self.call_from_thread(output_log.write_line, "⚠ Permission denied. Trying with sudo...\n")
                     sudo_update_result = subprocess.run(
                         ["sudo", "nix", "flake", "update",
@@ -2897,6 +2972,7 @@ class ManageApp(App):
                             self.call_from_thread(output_log.write_line, "✓ Lock file updated (with sudo)\n")
                             lock_file_updated = True
                             # Fix ownership so subsequent operations work without sudo
+                            # Note: sudo required to change file ownership back to user
                             self.call_from_thread(output_log.write_line, "Fixing lock file ownership...\n")
                             import os
                             user = os.getenv("USER") or os.getenv("LOGNAME") or "brian"
@@ -3241,6 +3317,7 @@ class ManageApp(App):
                     if len(parts) >= 2 and parts[1] == "disk":
                         device = f"/dev/{parts[0]}"
                         try:
+                            # Note: sudo required for smartctl to access raw disk devices
                             smart_result = subprocess.run(
                                 ["sudo", "smartctl", "-H", device],
                                 capture_output=True,
