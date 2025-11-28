@@ -212,6 +212,7 @@
     pinta
     prismlauncher
     python3
+    qimgv
     rclone
     remmina
     restic
@@ -229,8 +230,6 @@
     vscode-fhs
     wine
     zoom-us
-    qimgv
-    gthumb
   ];
 
   # Environment variables

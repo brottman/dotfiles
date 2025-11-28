@@ -394,7 +394,8 @@ class CommandExecutor:
     def __init__(self, working_dir: Path, 
                  output_callback: Optional[Callable[[str], None]] = None,
                  spinner_callback: Optional[Callable[[str], None]] = None,
-                 error_log_path: Optional[Path] = None) -> None:
+                 error_log_path: Optional[Path] = None,
+                 remote_manager: Optional['RemoteConnectionManager'] = None) -> None:
         """
         Initialize CommandExecutor.
         
@@ -403,11 +404,13 @@ class CommandExecutor:
             output_callback: Callback function for output lines (str -> None)
             spinner_callback: Callback function for spinner control ('start'|'stop'|'stop_success')
             error_log_path: Optional path to log errors for debugging
+            remote_manager: Optional RemoteConnectionManager for remote execution
         """
         self.working_dir = working_dir
         self.output_callback = output_callback or (lambda x: None)
         self.spinner_callback = spinner_callback or (lambda x: None)
         self.error_log_path = error_log_path
+        self.remote_manager = remote_manager
     
     def _log_error(self, cmd: List[str], error: Exception, context: str = "") -> None:
         """Log error to file if error_log_path is set."""
@@ -728,6 +731,190 @@ class CommandExecutor:
             text=True,
             timeout=timeout
         )
+
+
+# =============================================================================
+# Remote Connection Manager
+# =============================================================================
+
+@dataclass
+class RemoteMachine:
+    """Represents a remote machine configuration."""
+    name: str
+    host: str
+    user: Optional[str] = None
+    port: int = 22
+    key_file: Optional[str] = None
+    use_agent: bool = True
+    timeout: int = 10
+    enabled: bool = True
+
+
+class RemoteConnectionManager:
+    """
+    Manages remote machine connections and SSH configuration.
+    Handles loading remote machine configurations and testing connections.
+    """
+    
+    def __init__(self, config_path: Optional[Path] = None) -> None:
+        """
+        Initialize RemoteConnectionManager.
+        
+        Args:
+            config_path: Path to remote-machines.yaml config file
+        """
+        if config_path is None:
+            # Default to .manage-remote-machines.yaml in current directory
+            config_path = Path.cwd() / ".manage-remote-machines.yaml"
+        self.config_path = config_path
+        self._remote_machines: Dict[str, RemoteMachine] = {}
+        self._load_remote_machines()
+    
+    def _load_remote_machines(self) -> None:
+        """Load remote machine configurations from YAML file."""
+        self._remote_machines = {}
+        
+        if not self.config_path.exists():
+            # No config file - that's okay, just no remote machines
+            return
+        
+        try:
+            if yaml is None:
+                return
+            
+            with open(self.config_path, 'r') as f:
+                config = yaml.safe_load(f)
+            
+            if not config or 'machines' not in config:
+                return
+            
+            for machine_config in config['machines']:
+                try:
+                    name = machine_config.get('name', '')
+                    host = machine_config.get('host', '')
+                    if not name or not host:
+                        continue
+                    
+                    machine = RemoteMachine(
+                        name=name,
+                        host=host,
+                        user=machine_config.get('user'),
+                        port=machine_config.get('port', 22),
+                        key_file=machine_config.get('key_file'),
+                        use_agent=machine_config.get('use_agent', True),
+                        timeout=machine_config.get('timeout', 10),
+                        enabled=machine_config.get('enabled', True)
+                    )
+                    
+                    if machine.enabled:
+                        self._remote_machines[name] = machine
+                except Exception:
+                    # Skip invalid entries
+                    continue
+        except Exception:
+            # If loading fails, just continue without remote machines
+            pass
+    
+    def get_remote_machines(self) -> List[RemoteMachine]:
+        """Get list of all enabled remote machines."""
+        return list(self._remote_machines.values())
+    
+    def get_remote_machine(self, name: str) -> Optional[RemoteMachine]:
+        """Get a remote machine by name."""
+        return self._remote_machines.get(name)
+    
+    def is_remote_machine(self, name: str) -> bool:
+        """Check if a machine name refers to a remote machine."""
+        return name in self._remote_machines
+    
+    def test_connection(self, machine: RemoteMachine) -> Tuple[bool, str]:
+        """
+        Test SSH connection to a remote machine.
+        
+        Args:
+            machine: RemoteMachine to test
+            
+        Returns:
+            Tuple of (success: bool, message: str)
+        """
+        try:
+            # Build SSH command
+            ssh_cmd = ["ssh", "-o", "ConnectTimeout=5", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no"]
+            
+            if machine.port != 22:
+                ssh_cmd.extend(["-p", str(machine.port)])
+            
+            if machine.key_file:
+                ssh_cmd.extend(["-i", machine.key_file])
+            
+            if not machine.use_agent:
+                ssh_cmd.append("-o")
+                ssh_cmd.append("IdentitiesOnly=yes")
+            
+            # Build host string
+            host_str = machine.host
+            if machine.user:
+                host_str = f"{machine.user}@{machine.host}"
+            
+            ssh_cmd.append(host_str)
+            ssh_cmd.append("echo 'Connection successful'")
+            
+            # Test connection
+            result = subprocess.run(
+                ssh_cmd,
+                capture_output=True,
+                text=True,
+                timeout=machine.timeout
+            )
+            
+            if result.returncode == 0:
+                return True, "Connected"
+            else:
+                error_msg = result.stderr.strip() or "Connection failed"
+                return False, error_msg
+        except subprocess.TimeoutExpired:
+            return False, "Connection timeout"
+        except Exception as e:
+            return False, f"Error: {str(e)}"
+    
+    def build_ssh_command(self, machine: RemoteMachine, remote_cmd: List[str]) -> List[str]:
+        """
+        Build SSH command to execute a command on remote machine.
+        
+        Args:
+            machine: RemoteMachine to connect to
+            remote_cmd: Command to execute on remote machine
+            
+        Returns:
+            SSH command list
+        """
+        ssh_cmd = ["ssh"]
+        
+        # Add SSH options
+        ssh_cmd.extend(["-o", "ConnectTimeout=5"])
+        ssh_cmd.extend(["-o", "StrictHostKeyChecking=no"])
+        
+        if machine.port != 22:
+            ssh_cmd.extend(["-p", str(machine.port)])
+        
+        if machine.key_file:
+            ssh_cmd.extend(["-i", machine.key_file])
+        
+        if not machine.use_agent:
+            ssh_cmd.append("-o")
+            ssh_cmd.append("IdentitiesOnly=yes")
+        
+        # Build host string
+        host_str = machine.host
+        if machine.user:
+            host_str = f"{machine.user}@{machine.host}"
+        
+        ssh_cmd.append(host_str)
+        
+        # Add remote command (properly escaped)
+        ssh_cmd.extend(remote_cmd)
+        
+        return ssh_cmd
 
 
 # =============================================================================
@@ -1352,6 +1539,172 @@ class HelpScreen(ModalScreen):
     def action_dismiss(self) -> None:
         """Close the help screen."""
         self.dismiss()
+
+
+# =============================================================================
+# Machine Selection Screen
+# =============================================================================
+
+class MachineSelectionScreen(ModalScreen):
+    """Modal screen for selecting a machine (local or remote)."""
+    
+    BINDINGS = [
+        Binding("escape,q", "dismiss", "Cancel", priority=True),
+        Binding("enter", "confirm", "Select", priority=True),
+        Binding("up,k", "select_up", "Up", priority=True),
+        Binding("down,j", "select_down", "Down", priority=True),
+    ]
+    
+    CSS = """
+    MachineSelectionScreen {
+        align: center middle;
+    }
+    
+    #machine-container {
+        width: 60;
+        height: auto;
+        max-height: 80%;
+        border: solid $primary;
+        background: $surface;
+        padding: 1;
+    }
+    
+    .machine-title {
+        text-align: center;
+        text-style: bold;
+        padding: 1;
+        border-bottom: solid $primary;
+    }
+    
+    .machine-item {
+        padding: 0 1;
+        margin: 0 1;
+    }
+    
+    .machine-item.selected {
+        background: $primary 40%;
+    }
+    
+    .machine-item.remote {
+        border-left: solid $warning;
+    }
+    
+    .machine-status {
+        text-align: right;
+        color: $text-muted;
+    }
+    """
+    
+    def __init__(self, machines_list: List[str], current_machine: Optional[str],
+                 remote_manager: RemoteConnectionManager, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.machines_list = machines_list
+        self.current_machine = current_machine
+        self.remote_manager = remote_manager
+        self.selected_index = 0
+        if current_machine and current_machine in machines_list:
+            self.selected_index = machines_list.index(current_machine)
+        self._connection_status: Dict[str, Tuple[bool, str]] = {}  # machine -> (connected, message)
+    
+    def compose(self) -> ComposeResult:
+        with Container(id="machine-container"):
+            yield Static("Select Machine", classes="machine-title")
+            with ScrollableContainer(id="machine-list"):
+                for idx, machine in enumerate(self.machines_list):
+                    is_remote = self.remote_manager.is_remote_machine(machine)
+                    remote_class = "remote" if is_remote else ""
+                    selected_class = "selected" if idx == self.selected_index else ""
+                    classes = f"machine-item {remote_class} {selected_class}"
+                    
+                    # Get connection status for remote machines
+                    status_text = ""
+                    if is_remote:
+                        remote_machine = self.remote_manager.get_remote_machine(machine)
+                        if remote_machine:
+                            if machine in self._connection_status:
+                                connected, msg = self._connection_status[machine]
+                                status_text = f"[green]✓[/green] {msg}" if connected else f"[red]✗[/red] {msg}"
+                            else:
+                                status_text = "[dim]Testing...[/dim]"
+                    
+                    machine_display = f"{machine} [yellow](remote)[/yellow]" if is_remote else machine
+                    yield Static(
+                        f"{machine_display} {status_text}",
+                        classes=classes,
+                        id=f"machine-{idx}"
+                    )
+            yield Static("Press [bold]Enter[/bold] to select, [bold]Esc[/bold] to cancel", classes="machine-title")
+    
+    def on_mount(self) -> None:
+        """Test connections for remote machines on mount."""
+        # Test connections for all remote machines in background
+        def test_connections():
+            for machine in self.machines_list:
+                if self.remote_manager.is_remote_machine(machine):
+                    remote_machine = self.remote_manager.get_remote_machine(machine)
+                    if remote_machine:
+                        success, msg = self.remote_manager.test_connection(remote_machine)
+                        self._connection_status[machine] = (success, msg)
+                        # Update UI
+                        self.call_from_thread(self._update_machine_status, machine, success, msg)
+        
+        threading.Thread(target=test_connections, daemon=True).start()
+        self._highlight_selected()
+        
+        # Ensure the screen can receive focus for keyboard input
+        self.can_focus = True
+        # Set focus to the screen so it can receive keyboard input
+        self.call_after_refresh(lambda: self.set_focus(None))
+    
+    def _update_machine_status(self, machine: str, connected: bool, msg: str) -> None:
+        """Update connection status for a machine."""
+        try:
+            idx = self.machines_list.index(machine)
+            machine_widget = self.query_one(f"#machine-{idx}", Static)
+            is_remote = self.remote_manager.is_remote_machine(machine)
+            status_text = f"[green]✓[/green] {msg}" if connected else f"[red]✗[/red] {msg}"
+            machine_display = f"{machine} [yellow](remote)[/yellow]" if is_remote else machine
+            machine_widget.update(f"{machine_display} {status_text}")
+        except Exception:
+            pass
+    
+    def _highlight_selected(self) -> None:
+        """Highlight the selected machine."""
+        for idx in range(len(self.machines_list)):
+            try:
+                item = self.query_one(f"#machine-{idx}", Static)
+                if idx == self.selected_index:
+                    item.add_class("selected")
+                else:
+                    item.remove_class("selected")
+            except Exception:
+                pass
+    
+    def action_select_up(self) -> None:
+        """Move selection up."""
+        if self.selected_index > 0:
+            self.selected_index -= 1
+        else:
+            self.selected_index = len(self.machines_list) - 1
+        self._highlight_selected()
+    
+    def action_select_down(self) -> None:
+        """Move selection down."""
+        if self.selected_index < len(self.machines_list) - 1:
+            self.selected_index += 1
+        else:
+            self.selected_index = 0
+        self._highlight_selected()
+    
+    def action_confirm(self) -> None:
+        """Confirm selection."""
+        if self.machines_list:
+            selected_machine = self.machines_list[self.selected_index]
+            self.dismiss(selected_machine)
+    
+    def action_dismiss(self) -> None:
+        """Cancel selection."""
+        self.dismiss(None)
 
 
 # =============================================================================
@@ -2371,8 +2724,15 @@ class ManageApp(App):
         # - Command availability: 10 minutes (very stable)
         self._cache_manager = CacheManager(default_ttl_seconds=300)
         
-        # Load machines list (with caching)
-        self.machines_list: List[str] = self._get_machines_list_cached()
+        # Initialize remote connection manager (needed before loading machines list)
+        # Use flake_path for config file location
+        remote_config_path = self.flake_path / ".manage-remote-machines.yaml"
+        self._remote_manager = RemoteConnectionManager(config_path=remote_config_path)
+        
+        # Load machines list (with caching) - includes both local and remote machines
+        local_machines = self._get_machines_list_cached()
+        remote_machines = [m.name for m in self._remote_manager.get_remote_machines()]
+        self.machines_list: List[str] = local_machines + remote_machines
         self.current_machine: Optional[str] = self._detect_current_machine()
         self.machine_index: int = 0
         if self.current_machine in self.machines_list:
@@ -2382,6 +2742,7 @@ class ManageApp(App):
         self._pending_dangerous_action = None  # (action_id, title, requires_machine)
         self._dangerous_confirmation_count = 0
         self._last_failed_action: Optional[Tuple[str, Optional[str]]] = None  # (action_id, machine)
+        self._current_remote_machine: Optional[RemoteMachine] = None  # Current remote machine context
         
         # Initialize command registry
         self._command_registry = CommandRegistry()
@@ -2392,7 +2753,8 @@ class ManageApp(App):
             working_dir=self.flake_path,
             output_callback=self._output_callback,
             spinner_callback=self._spinner_callback,
-            error_log_path=error_log_path
+            error_log_path=error_log_path,
+            remote_manager=self._remote_manager
         )
         
         # Cache for lazily loaded actions (category -> actions list)
@@ -3048,10 +3410,12 @@ class ManageApp(App):
         # NixOS commands
         # Note: sudo required for nixos-rebuild to modify system configuration
         registry.register("switch", lambda m, log: self._run_streaming(
-            ["sudo", "nixos-rebuild", "switch", "--flake", f".#{m}"], log))
+            ["sudo", "nixos-rebuild", "switch", "--flake", f".#{m}"], log, 
+            remote_machine=self._current_remote_machine))
         # Note: sudo required for nixos-rebuild to modify boot configuration
         registry.register("boot", lambda m, log: self._run_streaming(
-            ["sudo", "nixos-rebuild", "boot", "--flake", f".#{m}"], log))
+            ["sudo", "nixos-rebuild", "boot", "--flake", f".#{m}"], log,
+            remote_machine=self._current_remote_machine))
         registry.register("update-nixpkgs", lambda m, log: self._run_streaming(
             ["nix", "flake", "update", "nixpkgs", "--extra-experimental-features", "nix-command flakes"], log))
         registry.register("rebuild-all", lambda m, log: self._rebuild_all_machines(log))
@@ -3333,8 +3697,12 @@ class ManageApp(App):
     
     def _update_machine_display(self) -> None:
         """Update the machine selector display."""
+        machine_display = self.current_machine or "None"
+        # Check if it's a remote machine
+        is_remote = self._remote_manager.is_remote_machine(machine_display) if machine_display != "None" else False
+        remote_indicator = " [yellow](remote)[/yellow]" if is_remote else ""
         self.query_one("#machine-selector", Static).update(
-            f"[bold]Machine:[/bold] [green]{self.current_machine}[/green] | "
+            f"[bold]Machine:[/bold] [green]{machine_display}[/green]{remote_indicator} | "
             f"[dim]Press 'm' to change[/dim]"
         )
     
@@ -3455,9 +3823,21 @@ class ManageApp(App):
             self._update_description()
     
     def action_cycle_machine(self) -> None:
-        self.machine_index = (self.machine_index + 1) % len(self.machines_list)
-        self.current_machine = self.machines_list[self.machine_index]
-        self._update_machine_display()
+        """Open machine selection screen."""
+        def on_machine_selected(machine: Optional[str]) -> None:
+            if machine:
+                if machine in self.machines_list:
+                    self.machine_index = self.machines_list.index(machine)
+                    self.current_machine = machine
+                    self._update_machine_display()
+        
+        # Create and show machine selection screen
+        screen = MachineSelectionScreen(
+            machines_list=self.machines_list,
+            current_machine=self.current_machine,
+            remote_manager=self._remote_manager
+        )
+        self.push_screen(screen, callback=on_machine_selected)
     
     def action_clear_output(self) -> None:
         output_log = self._get_output_log()
@@ -3726,8 +4106,20 @@ class ManageApp(App):
     
     def _run_action(self, action_id: str, machine: Optional[str], output_log: OutputLog) -> None:
         """Run the actual command for an action using the command registry."""
-        # Sanitize and validate machine if required
-        if machine is not None:
+        # Check if this is a remote machine
+        is_remote = False
+        remote_machine = None
+        if machine is not None and self._remote_manager.is_remote_machine(machine):
+            is_remote = True
+            remote_machine = self._remote_manager.get_remote_machine(machine)
+            if remote_machine is None:
+                output_log.write_line(f"✗ Error: Remote machine configuration not found: {machine}\n")
+                self._reset_ui_state()
+                self._last_failed_action = (action_id, machine)
+                return
+        
+        # Sanitize and validate machine if required (only for local machines)
+        if machine is not None and not is_remote:
             try:
                 # Sanitize machine name first
                 machine = self._sanitize_machine_name(machine)
@@ -3770,13 +4162,27 @@ class ManageApp(App):
                 self._last_failed_action = (action_id, machine)
                 return
         
-        # Check dependencies before executing
-        if not self._check_dependencies(action_id, output_log):
+        # Check dependencies before executing (skip for remote machines)
+        if not is_remote and not self._check_dependencies(action_id, output_log):
             # Store failed action for retry (dependency issue)
             self._last_failed_action = (action_id, machine)
             return
         
+        # For remote machines, test connection first
+        if is_remote and remote_machine:
+            output_log.write_line(f"Testing connection to {remote_machine.name}...\n")
+            success, msg = self._remote_manager.test_connection(remote_machine)
+            if not success:
+                output_log.write_line(f"✗ Connection failed: {msg}\n")
+                output_log.write_line("Please check your SSH configuration and try again.\n")
+                self._reset_ui_state()
+                self._last_failed_action = (action_id, machine)
+                return
+            output_log.write_line(f"✓ Connected to {remote_machine.name}\n")
+        
         try:
+            # Store remote machine context for command handlers
+            self._current_remote_machine = remote_machine if is_remote else None
             self._command_registry.execute(action_id, machine, output_log)
             # Clear last failed action on success
             self._last_failed_action = None
@@ -3886,13 +4292,28 @@ class ManageApp(App):
         """Show the relaunch prompt modal."""
         self.push_screen(RelaunchPrompt())
     
-    def _run_streaming(self, cmd: List[str], output_log: OutputLog, shell: bool = False) -> None:
-        """Run a command and stream output to the log using CommandExecutor."""
+    def _run_streaming(self, cmd: List[str], output_log: OutputLog, shell: bool = False, 
+                      remote_machine: Optional[RemoteMachine] = None) -> None:
+        """
+        Run a command and stream output to the log using CommandExecutor.
+        
+        Args:
+            cmd: Command to execute
+            output_log: Output log widget
+            shell: Whether to execute in shell
+            remote_machine: Optional remote machine to execute command on
+        """
         # Start spinner
         self._get_spinner().start()
         
-        # Execute command asynchronously
-        self._command_executor.execute_async(cmd, shell=shell)
+        # If remote machine, wrap command with SSH
+        if remote_machine:
+            ssh_cmd = self._remote_manager.build_ssh_command(remote_machine, cmd)
+            # Execute remote command asynchronously
+            self._command_executor.execute_async(ssh_cmd, shell=False)
+        else:
+            # Execute command asynchronously
+            self._command_executor.execute_async(cmd, shell=shell)
     
     def _run_docker_ps(self, output_log: OutputLog, all_containers: bool = False) -> None:
         """Run docker ps and format output as a Rich table."""
