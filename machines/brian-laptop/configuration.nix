@@ -22,10 +22,8 @@
   # Enable bcachefs support
   boot.supportedFilesystems = [ "bcachefs" ];
 
-  # Virtualization
-  boot.kernelModules = [ "kvm-intel" ];
+  # Boot configuration
   boot.initrd.kernelModules = [ ];
-  boot.extraModprobeConfig = "options kvm_intel nested=1";
 
   # Quiet boot
   boot.kernelParams = [
@@ -144,32 +142,6 @@
     dedicatedServer.openFirewall = true;
   };
 
-  # Virtualization
-  virtualisation.libvirtd = {
-    enable = true;
-    onBoot = "ignore";
-    qemu = {
-      runAsRoot = false;
-      swtpm.enable = true;
-    };
-  };
-  systemd.services.libvirt-guests = {
-    enable = false;
-  };
-  # Autostart libvirtd default network on boot
-  systemd.services.libvirt-default-network = {
-    description = "Autostart libvirtd default network";
-    after = [ "libvirtd.service" ];
-    requires = [ "libvirtd.service" ];
-    serviceConfig = {
-      Type = "oneshot";
-      RemainAfterExit = true;
-      ExecStart = "${pkgs.libvirt}/bin/virsh net-autostart default";
-    };
-    wantedBy = [ "multi-user.target" ];
-  };
-  virtualisation.spiceUSBRedirection.enable = true;
-  programs.virt-manager.enable = true;
 
   # Firewall
   networking.firewall = {

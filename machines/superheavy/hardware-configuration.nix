@@ -7,7 +7,7 @@
   # Boot configuration
   boot.initrd.availableKernelModules = [ "xhci_pci" "ahci" "mpt3sas" "usb_storage" "usbhid" "sd_mod" ];
   boot.initrd.kernelModules = [ ];
-  boot.kernelModules = [ "kvm-intel" ]; # Adjust based on CPU
+  boot.kernelModules = [ ];
   boot.extraModulePackages = [ ];
   
   # Bootloader settings for server (systemd-boot)

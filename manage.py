@@ -74,7 +74,6 @@ ACTIONS = {
         ("status", "List Generations", "Show current and available NixOS generations", False, True),
         ("gc", "Garbage Collection", "Remove old generations and free up disk space", False, False),
         ("list", "List Machines", "Show all available machine configurations", False, False),
-        ("rollback", "Rollback", "Roll back to the previous system generation", True, True),
     ],
     "docker": [
         ("docker-ps", "List Containers", "Show all running Docker containers", False, False),
@@ -342,13 +341,15 @@ class Spinner(Static):
     def stop_success(self) -> None:
         """Stop the spinner and show a green checkmark."""
         self._spinning = False
-        self.update("[green]✓[/green]")
+        # Use larger checkmark character with bold styling
+        self.update("[bold green]✔[/bold green]")
     
     def _update(self) -> None:
         """Update the spinner frame."""
         if self._spinning:
             frame = self.SPINNER_FRAMES[self._frame_index % len(self.SPINNER_FRAMES)]
-            self.update(f"[cyan]{frame}[/cyan]")
+            # Make spinner bigger with bold styling
+            self.update(f"[bold cyan]{frame}[/bold cyan]")
             self._frame_index += 1
             self.set_timer(0.1, self._update)
 
@@ -361,10 +362,18 @@ class OutputLog(Log):
         import re
         return re.sub(r'\[/?[^\]]+\]', '', text)
     
+    def _strip_ansi(self, text: str) -> str:
+        """Strip ANSI escape codes from text."""
+        import re
+        # Remove ANSI escape sequences (color codes, cursor movements, etc.)
+        ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+        return ansi_escape.sub('', text)
+    
     def write_line(self, content: str) -> None:
-        """Write a line, stripping markup."""
+        """Write a line, stripping markup and ANSI codes."""
         if isinstance(content, str):
-            content = self._strip_markup(content)
+            content = self._strip_ansi(content)  # Strip ANSI codes first
+            content = self._strip_markup(content)  # Then strip Rich markup
         self.write(content)
 
 
@@ -978,6 +987,8 @@ class VMCreateWizard(ModalScreen):
             os_variant = "generic"
         
         # Build virt-install command
+        # Use --import to create VM without installation source (blank disk)
+        # We'll create the disk using virt-install's --disk size= option with --import
         cmd = [
             "virt-install",
             "--name", vm_name,
@@ -986,6 +997,7 @@ class VMCreateWizard(ModalScreen):
             "--disk", f"size={disk_gb},format=qcow2",
             "--os-variant", os_variant,
             "--noautoconsole",
+            "--import",  # Import mode - creates VM without installation source
         ]
         
         # Add network
@@ -1013,20 +1025,27 @@ class VMCreateWizard(ModalScreen):
         elif network == "macvtap":
             cmd.extend(["--network", "type=direct,source=eth0,mode=bridge"])
         
-        # For NixOS, we might want to add a CD-ROM for installation
+        # For NixOS, add console support
         if os_type == "NixOS":
-            # Check if we have a NixOS ISO or use network install
             cmd.extend(["--graphics", "none", "--console", "pty,target_type=serial"])
+        else:
+            # Add basic graphics for other OS types
+            cmd.extend(["--graphics", "vnc"])
         
         self.call_from_thread(self.output_log.write_line, f"Running: {' '.join(cmd)}\n\n")
         
-        # Run virt-install
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            cwd=self.flake_path
-        )
+        # Run virt-install with timeout to prevent hanging
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                cwd=self.flake_path,
+                timeout=60  # 60 second timeout
+            )
+        except subprocess.TimeoutExpired:
+            self.call_from_thread(self.output_log.write_line, f"✗ Error: virt-install timed out after 60 seconds\n")
+            raise Exception("virt-install timed out")
         
         if result.returncode == 0:
             self.call_from_thread(self.output_log.write_line, f"✓ VM {vm_name} created successfully!\n")
@@ -1144,6 +1163,8 @@ class ManageApp(App):
         text-align: right;
         padding: 0 1;
         width: auto;
+        text-style: bold;
+        content-align: right middle;
     }
     
     #output-log {
@@ -1301,24 +1322,28 @@ class ManageApp(App):
         # Update the action list to show actions for the new tab
         action_panel = self.query_one("#action-panel", Vertical)
         
-        # Try to find and remove existing action list
-        try:
-            current_action_list = action_panel.query_one("#actions-current", ActionList)
-            current_action_list.remove()
-            # Schedule mounting new list after removal completes
-            self.call_after_refresh(self._mount_new_action_list, tab_id)
-        except Exception:
-            # No existing action list, mount immediately
-            self._mount_new_action_list(tab_id)
-    
-    def _mount_new_action_list(self, tab_id: str) -> None:
-        """Mount a new action list for the given tab."""
-        action_panel = self.query_one("#action-panel", Vertical)
-        new_action_list = ActionList(tab_id, id="actions-current")
-        action_panel.mount(new_action_list)
-        # Set focus on the new action list after it's fully mounted
-        self.call_after_refresh(lambda: self.set_focus(new_action_list))
-        self._update_description()
+        # Remove existing action list if it exists
+        existing_lists = action_panel.query(ActionList)
+        for action_list in existing_lists:
+            if action_list.id == "actions-current":
+                action_list.remove()
+        
+        # Mount new list after a brief delay to ensure old one is removed
+        def mount_new_list():
+            # Verify old one is gone
+            try:
+                action_panel.query_one("#actions-current", ActionList)
+                # Still exists, wait a bit more
+                self.set_timer(0.05, mount_new_list)
+            except Exception:
+                # Old one is gone, safe to mount new one
+                new_action_list = ActionList(tab_id, id="actions-current")
+                action_panel.mount(new_action_list)
+                # Set focus on the new action list after it's fully mounted
+                self.call_after_refresh(lambda: self.set_focus(new_action_list))
+                self._update_description()
+        
+        self.call_after_refresh(mount_new_list)
     
     def action_navigate_up(self) -> None:
         action_list = self._get_current_action_list()
@@ -1500,8 +1525,6 @@ class ManageApp(App):
             self._run_streaming(["sudo", "nix-collect-garbage", "-d"], output_log)
         elif action_id == "list":
             self._list_machines(output_log)
-        elif action_id == "rollback":
-            self._run_streaming(["sudo", "nixos-rebuild", "switch", "--rollback"], output_log)
         
         # Docker commands
         elif action_id == "docker-ps":
@@ -1591,7 +1614,7 @@ class ManageApp(App):
         elif action_id == "net-firewall":
             self._run_streaming(["sudo", "iptables", "-L", "-n"], output_log)
         elif action_id == "net-bandwidth":
-            self._run_streaming(["speedtest-cli", "--simple"], output_log)
+            self._run_bandwidth_test(output_log)
         
         # Services commands
         elif action_id == "svc-list":
@@ -1750,20 +1773,138 @@ class ManageApp(App):
     def _rebuild_all_machines(self, output_log: OutputLog) -> None:
         """Rebuild all machine configurations."""
         def run_in_thread():
-            for machine in self.machines_list:
-                self.call_from_thread(output_log.write_line, f"\nBuilding {machine}...\n")
-                try:
-                    result = subprocess.run(
-                        ["nix", "build", f".#nixosConfigurations.{machine}.config.system.build.toplevel",
+            # Try to update lock file first if it's out of date
+            # This handles the case where flake.nix has new inputs not in lock file
+            self.call_from_thread(output_log.write_line, "Updating lock file if needed...\n")
+            lock_file_updated = False
+            update_result = subprocess.run(
+                ["nix", "flake", "update",
+                 "--extra-experimental-features", "nix-command flakes"],
+                cwd=self.flake_path,
+                capture_output=True,
+                text=True,
+                timeout=120
+            )
+            if update_result.returncode == 0:
+                # Check for GitHub API rate limit warnings (non-critical)
+                has_rate_limit_warnings = "API rate limit exceeded" in update_result.stderr
+                if has_rate_limit_warnings:
+                    self.call_from_thread(output_log.write_line, "⚠ GitHub API rate limit hit (using cached versions)\n")
+                    self.call_from_thread(output_log.write_line, "   This is not critical - Nix is using cached data\n")
+                    self.call_from_thread(output_log.write_line, "   For higher limits, set GITHUB_TOKEN environment variable\n")
+                
+                if update_result.stdout.strip() or "Added input" in update_result.stderr:
+                    self.call_from_thread(output_log.write_line, "✓ Lock file updated\n\n")
+                    lock_file_updated = True
+                else:
+                    self.call_from_thread(output_log.write_line, "✓ Lock file is up to date\n\n")
+            else:
+                # If update fails due to permissions, try with sudo
+                if "Permission denied" in update_result.stderr:
+                    self.call_from_thread(output_log.write_line, "⚠ Permission denied. Trying with sudo...\n")
+                    sudo_update_result = subprocess.run(
+                        ["sudo", "nix", "flake", "update",
                          "--extra-experimental-features", "nix-command flakes"],
                         cwd=self.flake_path,
                         capture_output=True,
-                        text=True
+                        text=True,
+                        timeout=120
+                    )
+                    if sudo_update_result.returncode == 0:
+                        # Check for GitHub API rate limit warnings (non-critical)
+                        has_rate_limit_warnings = "API rate limit exceeded" in sudo_update_result.stderr
+                        if has_rate_limit_warnings:
+                            self.call_from_thread(output_log.write_line, "⚠ GitHub API rate limit hit (using cached versions)\n")
+                            self.call_from_thread(output_log.write_line, "   This is not critical - Nix is using cached data\n")
+                        
+                        if sudo_update_result.stdout.strip() or "Added input" in sudo_update_result.stderr:
+                            self.call_from_thread(output_log.write_line, "✓ Lock file updated (with sudo)\n")
+                            lock_file_updated = True
+                            # Fix ownership so subsequent operations work without sudo
+                            self.call_from_thread(output_log.write_line, "Fixing lock file ownership...\n")
+                            import os
+                            user = os.getenv("USER") or os.getenv("LOGNAME") or "brian"
+                            chown_result = subprocess.run(
+                                ["sudo", "chown", f"{user}:{user}", "flake.lock"],
+                                cwd=self.flake_path,
+                                capture_output=True,
+                                text=True,
+                                timeout=10
+                            )
+                            if chown_result.returncode == 0:
+                                self.call_from_thread(output_log.write_line, "✓ Lock file ownership fixed\n\n")
+                            else:
+                                self.call_from_thread(output_log.write_line, "⚠ Could not fix ownership (non-critical)\n\n")
+                        else:
+                            self.call_from_thread(output_log.write_line, "✓ Lock file is up to date\n\n")
+                    else:
+                        self.call_from_thread(output_log.write_line, f"✗ Failed to update lock file even with sudo:\n{sudo_update_result.stderr[:300]}\n")
+                        self.call_from_thread(output_log.write_line, "\nTo fix permissions, run:\n")
+                        self.call_from_thread(output_log.write_line, "  sudo chown $USER:$USER flake.lock\n")
+                        self.call_from_thread(output_log.write_line, "Then run 'nix flake update' manually.\n\n")
+                else:
+                    self.call_from_thread(output_log.write_line, f"⚠ Lock file update warning: {update_result.stderr[:200]}\n")
+                    self.call_from_thread(output_log.write_line, "   Continuing with builds...\n\n")
+            
+            # Now build all machines
+            # If lock file was just updated, allow it to be updated during builds if needed
+            # (in case the update didn't fully complete or there are nested dependencies)
+            no_update_flag = [] if lock_file_updated else ["--no-update-lock-file"]
+            
+            for machine in self.machines_list:
+                self.call_from_thread(output_log.write_line, f"\nBuilding {machine}...\n")
+                try:
+                    cmd = ["nix", "build", f".#nixosConfigurations.{machine}.config.system.build.toplevel",
+                           "--extra-experimental-features", "nix-command flakes"] + no_update_flag
+                    result = subprocess.run(
+                        cmd,
+                        cwd=self.flake_path,
+                        capture_output=True,
+                        text=True,
+                        timeout=300  # 5 minute timeout per build
                     )
                     if result.returncode == 0:
                         self.call_from_thread(output_log.write_line, f"✓ {machine} built successfully\n")
                     else:
-                        self.call_from_thread(output_log.write_line, f"✗ {machine} failed:\n{result.stderr}\n")
+                        error_msg = result.stderr
+                        # Check for various lock file error messages
+                        if ("requires lock file changes" in error_msg or 
+                            "Lock file is out of date" in error_msg or
+                            "lock file changes but they're not allowed" in error_msg):
+                            self.call_from_thread(output_log.write_line, f"✗ {machine} failed: Lock file still needs updates\n")
+                            # Try one more update attempt
+                            self.call_from_thread(output_log.write_line, "   Attempting to update lock file again...\n")
+                            retry_update = subprocess.run(
+                                ["sudo", "nix", "flake", "update",
+                                 "--extra-experimental-features", "nix-command flakes"],
+                                cwd=self.flake_path,
+                                capture_output=True,
+                                text=True,
+                                timeout=120
+                            )
+                            if retry_update.returncode == 0:
+                                self.call_from_thread(output_log.write_line, "   ✓ Lock file updated, retrying build...\n")
+                                # Retry the build (allow lock file updates after retry update)
+                                retry_cmd = ["nix", "build", f".#nixosConfigurations.{machine}.config.system.build.toplevel",
+                                            "--extra-experimental-features", "nix-command flakes"]
+                                retry_result = subprocess.run(
+                                    retry_cmd,
+                                    cwd=self.flake_path,
+                                    capture_output=True,
+                                    text=True,
+                                    timeout=300
+                                )
+                                if retry_result.returncode == 0:
+                                    self.call_from_thread(output_log.write_line, f"✓ {machine} built successfully (after retry)\n")
+                                else:
+                                    self.call_from_thread(output_log.write_line, f"✗ {machine} still failed after lock file update:\n{retry_result.stderr[:500]}\n")
+                            else:
+                                self.call_from_thread(output_log.write_line, f"   ✗ Could not update lock file: {retry_update.stderr[:200]}\n")
+                                self.call_from_thread(output_log.write_line, "   Please run 'sudo nix flake update' manually\n")
+                        else:
+                            self.call_from_thread(output_log.write_line, f"✗ {machine} failed:\n{error_msg[:500]}\n")
+                except subprocess.TimeoutExpired:
+                    self.call_from_thread(output_log.write_line, f"✗ {machine} timed out after 5 minutes\n")
                 except Exception as e:
                     self.call_from_thread(output_log.write_line, f"✗ {machine} error: {e}\n")
             
@@ -1927,6 +2068,25 @@ class ManageApp(App):
         output_log.write_line("\n" + "-" * 60 + "\n")
         spinner = self.query_one("#spinner", Spinner)
         spinner.stop_success()
+    
+    def _run_bandwidth_test(self, output_log: OutputLog) -> None:
+        """Run bandwidth test using speedtest-cli."""
+        # Check if speedtest-cli is available
+        if not shutil.which("speedtest-cli"):
+            output_log.write_line("Error: speedtest-cli is not installed.\n\n")
+            output_log.write_line("To install speedtest-cli:\n")
+            output_log.write_line("  On NixOS: Add to configuration.nix:\n")
+            output_log.write_line("    environment.systemPackages = with pkgs; [ speedtest-cli ];\n\n")
+            output_log.write_line("  Or use nix-shell:\n")
+            output_log.write_line("    nix-shell -p speedtest-cli\n\n")
+            output_log.write_line("  Or install via pip:\n")
+            output_log.write_line("    pip install speedtest-cli\n\n")
+            spinner = self.query_one("#spinner", Spinner)
+            spinner.stop()
+            return
+        
+        # Run the speedtest
+        self._run_streaming(["speedtest-cli"], output_log)
     
     def _run_smart_status(self, output_log: OutputLog) -> None:
         """Check SMART status of drives."""
