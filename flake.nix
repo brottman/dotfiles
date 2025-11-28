@@ -83,22 +83,8 @@
           ];
         };
 
-        # Python 3.12 development shell
-        python312 = pkgs.mkShell {
-          buildInputs = with pkgs; [
-            python312
-            python312Packages.pip
-            python312Packages.setuptools
-            python312Packages.wheel
-            python312Packages.virtualenv
-            python312Packages.black
-            python312Packages.pytest
-            python312Packages.ipython
-          ];
-        };
-
         # Python 3.13 development shell
-        python313 = pkgs.mkShell {
+        python = pkgs.mkShell {
           buildInputs = with pkgs; [
             python313
             python313Packages.pip
@@ -108,30 +94,16 @@
             python313Packages.black
             python313Packages.pytest
             python313Packages.ipython
-          ];
-        };
-
-        # Python 3.14 development shell
-        python314 = pkgs.mkShell {
-          buildInputs = with pkgs; [
-            python314
-            python314Packages.pip
-            python314Packages.setuptools
-            python314Packages.wheel
-            python314Packages.virtualenv
-            python314Packages.black
-            python314Packages.pytest
-            python314Packages.ipython
 
             #Skylight dependencies
-            python314Packages.Django
-            python314Packages.Pillow
-            python314Packages.requests
-            python314Packages.beautifulsoup4
-            python314Packages.google-api-python-client
-            python314Packages.google-auth
-            python314Packages.google-auth-httplib2
-            python314Packages.google-auth-oauthlib
+            python313Packages.django
+            python313Packages.pillow
+            python313Packages.requests
+            python313Packages.beautifulsoup4
+            python313Packages.google-api-python-client
+            python313Packages.google-auth
+            python313Packages.google-auth-httplib2
+            python313Packages.google-auth-oauthlib
           ];
         };
       };

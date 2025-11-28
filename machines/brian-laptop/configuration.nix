@@ -211,7 +211,7 @@
     opencode
     pinta
     prismlauncher
-    python3
+    #python3
     rclone
     remmina
     restic

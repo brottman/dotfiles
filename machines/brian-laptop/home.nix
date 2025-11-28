@@ -4,36 +4,6 @@
   # Required by Home Manager; set once and bump only after reading release notes.
   home.stateVersion = "25.05";
   
-  # Python packages available by default in Konsole
-  home.packages = with pkgs; [
-    python314
-    python314Packages.pip
-    python314Packages.setuptools
-    python314Packages.wheel
-    python314Packages.virtualenv
-    python314Packages.black
-    python314Packages.pytest
-    python314Packages.ipython
-    # Skylight dependencies
-    python314Packages.Django
-    python314Packages.Pillow
-    python314Packages.requests
-    python314Packages.beautifulsoup4
-    python314Packages.google-api-python-client
-    python314Packages.google-auth
-    python314Packages.google-auth-httplib2
-    python314Packages.google-auth-oauthlib
-  ];
-  
-  # Configure bash to ensure Python packages are available
-  programs.bash = {
-    enable = true;
-    initExtra = ''
-      # Ensure Python packages are in PATH
-      export PATH="$HOME/.nix-profile/bin:$PATH"
-    '';
-  };
-  
   # Autostart seafile-client
   systemd.user.services.seafile-client = {
     Unit = {
