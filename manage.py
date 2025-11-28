@@ -1,7 +1,7 @@
 #!/usr/bin/env nix-shell
 #! nix-shell -i python3 -p python3 python3Packages.rich python3Packages.textual python3Packages.pyyaml
 """
-manage.py - System Management Console v1.13
+manage.py - System Management Console v1.14
 A beautiful terminal user interface for managing NixOS, Docker, System, Git, Network, Services, and Storage.
 """
 
@@ -61,7 +61,7 @@ except ImportError:
 # Version Information
 # =============================================================================
 
-VERSION = "1.13"
+VERSION = "1.14"
 
 
 # =============================================================================
@@ -269,6 +269,30 @@ TABS = _get_tabs()
 # Actions are loaded lazily when tabs are accessed (see ManageApp._get_actions_for_category)
 
 MACHINES = ["brian-laptop", "superheavy", "docker", "backup"]
+
+
+# =============================================================================
+# Command History
+# =============================================================================
+
+@dataclass
+class CommandHistoryEntry:
+    """Represents a single command in the history."""
+    action_id: str
+    title: str
+    machine: Optional[str]
+    timestamp: datetime
+    status: str  # "completed", "failed", "cancelled"
+    
+    def __str__(self) -> str:
+        machine_str = f" [{self.machine}]" if self.machine else ""
+        status_icon = {
+            "completed": "✓",
+            "failed": "✗",
+            "cancelled": "⚠"
+        }.get(self.status, "•")
+        time_str = self.timestamp.strftime("%H:%M:%S")
+        return f"{status_icon} [{time_str}] {self.title}{machine_str}"
 
 
 # =============================================================================
@@ -2090,7 +2114,7 @@ class ManageApp(App):
         Binding("q", "quit", "Quit"),
         Binding("up,k", "navigate_up", "Up", show=False),
         Binding("down,j", "navigate_down", "Down", show=False),
-        Binding("left,h", "prev_tab", "Prev Tab", show=False),
+        Binding("left", "prev_tab", "Prev Tab", show=False),
         Binding("right,l", "next_tab", "Next Tab", show=False),
         Binding("enter", "execute_action", "Execute"),
         Binding("tab", "next_tab", "Next Tab"),
@@ -2106,8 +2130,10 @@ class ManageApp(App):
         Binding("m", "cycle_machine", "Machine"),
         Binding("c", "clear_output", "Clear"),
         Binding("r", "retry_action", "Retry", show=False),
-        Binding("/", "focus_search", "Search", show=False),
+        Binding("/", "focus_search", "Search"),
         Binding("escape", "clear_search", "Clear Search", show=False),
+        Binding("h", "show_history", "History"),
+        Binding("ctrl+r", "repeat_last_command", "Repeat Last"),
     ]
     
     current_tab = reactive("system")
@@ -2150,6 +2176,14 @@ class ManageApp(App):
         
         # Cache for lazily loaded actions (category -> actions list)
         self._actions_cache: Dict[str, List[Tuple[str, str, str, bool, bool]]] = {}
+        
+        # Search state
+        self._search_active = False
+        
+        # Command history
+        self._command_history: List[CommandHistoryEntry] = []
+        self._history_index: int = -1  # -1 means not browsing history
+        self._max_history_size: int = 100  # Keep last 100 commands
         
         self._register_commands()
     
@@ -3186,6 +3220,86 @@ class ManageApp(App):
                 action_list._highlight_selected()
             self._update_description()
     
+    def _add_to_history(self, action_id: str, title: str, machine: Optional[str], status: str) -> None:
+        """Add a command to history."""
+        entry = CommandHistoryEntry(
+            action_id=action_id,
+            title=title,
+            machine=machine,
+            timestamp=datetime.now(),
+            status=status
+        )
+        self._command_history.append(entry)
+        
+        # Limit history size
+        if len(self._command_history) > self._max_history_size:
+            self._command_history.pop(0)
+    
+    def _update_last_history_status(self, status: str) -> None:
+        """Update the status of the last history entry."""
+        if self._command_history:
+            self._command_history[-1].status = status
+    
+    def action_show_history(self) -> None:
+        """Show command history in output log."""
+        output_log = self._get_output_log()
+        output_log.clear()
+        output_log.write_line("\n" + "=" * 60 + "\n")
+        output_log.write_line("Command History:\n")
+        output_log.write_line("=" * 60 + "\n\n")
+        
+        if not self._command_history:
+            output_log.write_line("No commands have been executed yet.\n")
+        else:
+            # Show last 20 entries (most recent first)
+            recent_history = list(reversed(self._command_history[-20:]))
+            for idx, entry in enumerate(recent_history):
+                output_log.write_line(f"{idx + 1:2d}. {entry}\n")
+            
+            if len(self._command_history) > 20:
+                output_log.write_line(f"\n... and {len(self._command_history) - 20} more commands\n")
+            
+            output_log.write_line("\n" + "=" * 60 + "\n")
+            output_log.write_line("Press 'r' to repeat the last command, or 'h' again to close.\n")
+            output_log.write_line("=" * 60 + "\n")
+        
+        output_log.flush()
+    
+    def action_repeat_last_command(self) -> None:
+        """Repeat the last executed command."""
+        if not self._command_history:
+            output_log = self._get_output_log()
+            output_log.write_line("No command history available.\n")
+            return
+        
+        last_entry = self._command_history[-1]
+        # Get action details from registry or cache
+        actions = self._get_actions_for_category(self.current_tab)
+        action_details = None
+        for action_id, title, desc, dangerous, requires_machine in actions:
+            if action_id == last_entry.action_id:
+                action_details = (title, dangerous, requires_machine)
+                break
+        
+        if not action_details:
+            # Try to find in all categories
+            for category in ["system", "nixos", "docker", "git", "network", "services", "storage", "vm"]:
+                actions = self._get_actions_for_category(category)
+                for action_id, title, desc, dangerous, requires_machine in actions:
+                    if action_id == last_entry.action_id:
+                        action_details = (title, dangerous, requires_machine)
+                        break
+                if action_details:
+                    break
+        
+        if action_details:
+            title, dangerous, requires_machine = action_details
+            machine = last_entry.machine if requires_machine else None
+            self._execute_action(last_entry.action_id, title, dangerous, requires_machine)
+        else:
+            output_log = self._get_output_log()
+            output_log.write_line(f"Could not find action details for: {last_entry.action_id}\n")
+    
     def action_execute_action(self) -> None:
         action_list = self._get_current_action_list()
         if action_list:
@@ -3219,6 +3333,9 @@ class ManageApp(App):
                         output_log.write_line(f"Machine: {machine}\n")
                     
                     self._write_separator()
+                    
+                    # Add to history before executing
+                    self._add_to_history(action_id, title, machine, "running")
                     
                     # Execute the appropriate command
                     self._run_action(action_id, machine, output_log)
@@ -3254,6 +3371,9 @@ class ManageApp(App):
             output_log.write_line(f"Machine: {machine}\n")
         
         output_log.write_line("-" * 60 + "\n")
+        
+        # Add to history before executing
+        self._add_to_history(action_id, title, machine, "running")
         
         # Execute the appropriate command
         self._run_action(action_id, machine, output_log)
@@ -3314,16 +3434,22 @@ class ManageApp(App):
             self._command_registry.execute(action_id, machine, output_log)
             # Clear last failed action on success
             self._last_failed_action = None
+            # Update history status to completed
+            self._update_last_history_status("completed")
         except KeyError:
             self._handle_error(f"Unknown action: {action_id}\n")
             # Store failed action for retry
             self._last_failed_action = (action_id, machine)
+            # Update history status to failed
+            self._update_last_history_status("failed")
             # Add retry hint
             output_log.write_line("Press 'r' to retry.\n")
         except Exception as e:
             self._handle_command_error(f"action '{action_id}'", e)
             # Store failed action for retry
             self._last_failed_action = (action_id, machine)
+            # Update history status to failed
+            self._update_last_history_status("failed")
             # Add retry hint
             output_log.write_line("Press 'r' to retry.\n")
     
