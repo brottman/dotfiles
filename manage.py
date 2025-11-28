@@ -1,5 +1,5 @@
 #!/usr/bin/env nix-shell
-#! nix-shell -i python3 -p python3 python3Packages.rich python3Packages.textual
+#! nix-shell -i python3 -p python3 python3Packages.rich python3Packages.textual python3Packages.pyyaml
 """
 manage.py - System Management Console v1.02
 A beautiful terminal user interface for managing NixOS, Docker, System, Git, Network, Services, and Storage.
@@ -18,8 +18,13 @@ import json
 import re
 import hashlib
 from pathlib import Path
-from typing import Optional, List, Tuple, Dict, Any
+from typing import Optional, List, Tuple, Dict, Any, Callable
 from dataclasses import dataclass
+
+try:
+    import yaml
+except ImportError:
+    yaml = None
 
 try:
     from textual.app import App, ComposeResult
@@ -59,21 +64,26 @@ VERSION = "1.02"
 
 
 # =============================================================================
-# Action Definitions by Category
+# Configuration Loading
 # =============================================================================
 
-TABS = [
-    ("system", "System", "🖥️"),
-    ("nixos", "NixOS", "❄️"),
-    ("docker", "Docker", "🐳"),
-    ("git", "Git", "📂"),
-    ("network", "Network", "🌐"),
-    ("services", "Services", "⚙️"),
-    ("storage", "Storage", "💾"),
-    ("vm", "Virtual Machines", "💻"),
-]
+def _get_default_tabs() -> List[Tuple[str, str, str]]:
+    """Return default tab definitions."""
+    return [
+        ("system", "System", "🖥️"),
+        ("nixos", "NixOS", "❄️"),
+        ("docker", "Docker", "🐳"),
+        ("git", "Git", "📂"),
+        ("network", "Network", "🌐"),
+        ("services", "Services", "⚙️"),
+        ("storage", "Storage", "💾"),
+        ("vm", "Virtual Machines", "💻"),
+    ]
 
-ACTIONS = {
+
+def _get_default_actions() -> Dict[str, List[Tuple[str, str, str, bool, bool]]]:
+    """Return default action definitions."""
+    return {
     "nixos": [
         ("switch", "Switch Configuration", "Apply NixOS configuration immediately using nixos-rebuild switch", False, True),
         ("boot", "Boot Configuration", "Build and set configuration for next boot without activating", False, True),
@@ -175,7 +185,125 @@ ACTIONS = {
     ],
 }
 
+
+def _load_config_from_yaml(config_path: Optional[Path] = None) -> Tuple[
+    Optional[List[Tuple[str, str, str]]],
+    Optional[Dict[str, List[Tuple[str, str, str, bool, bool]]]]
+]:
+    """
+    Load tabs and actions from YAML configuration file.
+    
+    Returns:
+        Tuple of (tabs, actions) or (None, None) if loading fails.
+        tabs: List of (id, name, icon) tuples
+        actions: Dict mapping category to list of (id, title, desc, dangerous, requires_machine) tuples
+    """
+    if yaml is None:
+        return None, None
+    
+    if config_path is None:
+        # Look for config file in the same directory as manage.py
+        script_dir = Path(__file__).parent.absolute()
+        config_path = script_dir / "manage-actions.yaml"
+    
+    if not config_path.exists():
+        return None, None
+    
+    try:
+        with open(config_path, 'r') as f:
+            config = yaml.safe_load(f)
+        
+        if not config:
+            return None, None
+        
+        # Load tabs
+        tabs = []
+        if 'tabs' in config:
+            for tab in config['tabs']:
+                tabs.append((
+                    tab.get('id', ''),
+                    tab.get('name', ''),
+                    tab.get('icon', '')
+                ))
+        
+        # Load actions
+        actions = {}
+        if 'actions' in config:
+            for category, action_list in config['actions'].items():
+                actions[category] = []
+                for action in action_list:
+                    actions[category].append((
+                        action.get('id', ''),
+                        action.get('title', ''),
+                        action.get('description', ''),
+                        action.get('dangerous', False),
+                        action.get('requires_machine', False)
+                    ))
+        
+        return tabs if tabs else None, actions if actions else None
+        
+    except Exception as e:
+        # Silently fall back to defaults on any error
+        print(f"Warning: Failed to load config from {config_path}: {e}", file=sys.stderr)
+        return None, None
+
+
+def _get_tabs() -> List[Tuple[str, str, str]]:
+    """Get tabs from config file or return defaults."""
+    config_path = Path(__file__).parent.absolute() / "manage-actions.yaml"
+    tabs, _ = _load_config_from_yaml(config_path)
+    return tabs if tabs else _get_default_tabs()
+
+
+def _get_actions() -> Dict[str, List[Tuple[str, str, str, bool, bool]]]:
+    """Get actions from config file or return defaults."""
+    config_path = Path(__file__).parent.absolute() / "manage-actions.yaml"
+    _, actions = _load_config_from_yaml(config_path)
+    return actions if actions else _get_default_actions()
+
+
+# Load tabs and actions (from config file or defaults)
+TABS = _get_tabs()
+ACTIONS = _get_actions()
+
 MACHINES = ["brian-laptop", "superheavy", "docker", "backup"]
+
+
+# =============================================================================
+# Command Registry
+# =============================================================================
+
+class CommandRegistry:
+    """
+    Registry for command handlers.
+    Allows registering and executing commands by action_id.
+    """
+    
+    def __init__(self):
+        self._commands: Dict[str, Callable] = {}
+    
+    def register(self, action_id: str, handler: Callable) -> None:
+        """Register a command handler for an action_id."""
+        self._commands[action_id] = handler
+    
+    def execute(self, action_id: str, *args, **kwargs) -> None:
+        """
+        Execute a command by action_id.
+        
+        Args:
+            action_id: The action identifier
+            *args, **kwargs: Arguments to pass to the handler
+            
+        Raises:
+            KeyError: If action_id is not registered
+        """
+        if action_id not in self._commands:
+            raise KeyError(f"Unknown action: {action_id}")
+        self._commands[action_id](*args, **kwargs)
+    
+    def has_command(self, action_id: str) -> bool:
+        """Check if an action_id is registered."""
+        return action_id in self._commands
 
 
 # =============================================================================
@@ -1307,6 +1435,10 @@ class ManageApp(App):
         self._current_process_exit_code = None
         self._pending_dangerous_action = None  # (action_id, title, requires_machine)
         self._dangerous_confirmation_count = 0
+        
+        # Initialize command registry
+        self._command_registry = CommandRegistry()
+        self._register_commands()
     
     def _detect_current_machine(self) -> Optional[str]:
         """Detect the current machine from hostname."""
@@ -1324,6 +1456,164 @@ class ManageApp(App):
             # If hostname fails or times out, just use first machine
             pass
         return self.machines_list[0] if self.machines_list else None
+    
+    def _register_commands(self) -> None:
+        """Register all command handlers in the registry."""
+        registry = self._command_registry
+        
+        # NixOS commands
+        registry.register("switch", lambda m, log: self._run_streaming(
+            ["sudo", "nixos-rebuild", "switch", "--flake", f".#{m}"], log))
+        registry.register("boot", lambda m, log: self._run_streaming(
+            ["sudo", "nixos-rebuild", "boot", "--flake", f".#{m}"], log))
+        registry.register("update-nixpkgs", lambda m, log: self._run_streaming(
+            ["nix", "flake", "update", "nixpkgs", "--extra-experimental-features", "nix-command flakes"], log))
+        registry.register("rebuild-all", lambda m, log: self._rebuild_all_machines(log))
+        registry.register("status", lambda m, log: self._run_streaming(
+            ["nixos-rebuild", "list-generations"], log))
+        registry.register("gc", lambda m, log: self._run_streaming(
+            ["sudo", "nix-collect-garbage", "-d"], log))
+        registry.register("list", lambda m, log: self._list_machines(log))
+        registry.register("devshells", lambda m, log: self._list_devshells(log))
+        
+        # Docker commands
+        registry.register("docker-ps", lambda m, log: self._run_streaming(["docker", "ps"], log))
+        registry.register("docker-ps-all", lambda m, log: self._run_streaming(["docker", "ps", "-a"], log))
+        registry.register("docker-images", lambda m, log: self._run_streaming(["docker", "images"], log))
+        registry.register("docker-compose-up", lambda m, log: self._run_streaming(
+            ["docker", "compose", "up", "-d"], log))
+        registry.register("docker-compose-down", lambda m, log: self._run_streaming(
+            ["docker", "compose", "down"], log))
+        registry.register("docker-compose-logs", lambda m, log: self._run_streaming(
+            ["docker", "compose", "logs", "--tail=50"], log))
+        registry.register("docker-prune-all", lambda m, log: self._run_streaming(
+            ["docker", "system", "prune", "-af", "--volumes"], log))
+        registry.register("docker-stats", lambda m, log: self._run_streaming(
+            ["docker", "stats", "--no-stream"], log))
+        registry.register("docker-networks", lambda m, log: self._run_streaming(
+            ["docker", "network", "ls"], log))
+        registry.register("docker-volumes", lambda m, log: self._run_streaming(
+            ["docker", "volume", "ls"], log))
+        registry.register("docker-restart-all", lambda m, log: self._run_streaming(
+            ["sh", "-c", "docker restart $(docker ps -q)"], log, shell=False))
+        
+        # System commands
+        registry.register("health", lambda m, log: self._run_health_check(log))
+        registry.register("sys-info", lambda m, log: self._run_system_info(log))
+        registry.register("sys-memory", lambda m, log: self._run_streaming(["free", "-h"], log))
+        registry.register("sys-cpu", lambda m, log: self._run_streaming(["lscpu"], log))
+        registry.register("sys-processes", lambda m, log: self._run_streaming(
+            ["ps", "aux", "--sort=-%mem"], log))
+        registry.register("sys-services", lambda m, log: self._run_streaming(
+            ["systemctl", "--failed"], log))
+        registry.register("sys-logs", lambda m, log: self._run_streaming(
+            ["journalctl", "-n", "50", "--no-pager"], log))
+        registry.register("sys-boot-logs", lambda m, log: self._run_streaming(
+            ["journalctl", "-b", "-n", "50", "--no-pager"], log))
+        registry.register("sys-reboot", lambda m, log: self._run_streaming(
+            ["sudo", "systemctl", "reboot"], log))
+        registry.register("sys-shutdown", lambda m, log: self._run_streaming(
+            ["sudo", "systemctl", "poweroff"], log))
+        
+        # Git commands
+        registry.register("git-status", lambda m, log: self._run_streaming(["git", "status"], log))
+        registry.register("git-pull", lambda m, log: self._run_git_pull_with_check(log))
+        registry.register("git-push", lambda m, log: self._run_streaming(["git", "push"], log))
+        registry.register("git-log", lambda m, log: self._run_streaming(
+            ["git", "log", "--oneline", "-20"], log))
+        registry.register("git-diff", lambda m, log: self._run_streaming(["git", "diff"], log))
+        registry.register("git-branch", lambda m, log: self._run_streaming(
+            ["git", "branch", "-a"], log))
+        registry.register("git-stash", lambda m, log: self._run_streaming(["git", "stash"], log))
+        registry.register("git-stash-pop", lambda m, log: self._run_streaming(
+            ["git", "stash", "pop"], log))
+        registry.register("git-fetch", lambda m, log: self._run_streaming(
+            ["git", "fetch", "--all"], log))
+        registry.register("git-reset", lambda m, log: self._run_streaming(
+            ["git", "reset", "--hard", "HEAD"], log))
+        registry.register("git-clean", lambda m, log: self._run_streaming(["git", "clean", "-fd"], log))
+        
+        # Network commands
+        registry.register("net-ip", lambda m, log: self._run_streaming(["ip", "addr", "show"], log))
+        registry.register("net-connections", lambda m, log: self._run_streaming(["ss", "-tuln"], log))
+        registry.register("net-ports", lambda m, log: self._run_streaming(["ss", "-tlnp"], log))
+        registry.register("net-ping", lambda m, log: self._run_ping_test(log))
+        registry.register("net-dns", lambda m, log: self._run_dns_test(log))
+        registry.register("net-trace", lambda m, log: self._run_streaming(
+            ["traceroute", "-m", "15", "8.8.8.8"], log))
+        registry.register("net-wifi", lambda m, log: self._run_streaming(
+            ["nmcli", "device", "wifi", "list"], log))
+        registry.register("net-firewall", lambda m, log: self._run_streaming(
+            ["sudo", "iptables", "-L", "-n"], log))
+        registry.register("net-bandwidth", lambda m, log: self._run_bandwidth_test(log))
+        
+        # Services commands
+        registry.register("svc-list", lambda m, log: self._run_streaming(
+            ["systemctl", "list-units", "--type=service", "--no-pager"], log))
+        registry.register("svc-running", lambda m, log: self._run_streaming(
+            ["systemctl", "list-units", "--type=service", "--state=running", "--no-pager"], log))
+        registry.register("svc-failed", lambda m, log: self._run_streaming(
+            ["systemctl", "--failed", "--no-pager"], log))
+        registry.register("svc-timers", lambda m, log: self._run_streaming(
+            ["systemctl", "list-timers", "--no-pager"], log))
+        registry.register("svc-reload", lambda m, log: self._run_streaming(
+            ["sudo", "systemctl", "daemon-reload"], log))
+        registry.register("svc-nginx", lambda m, log: self._run_streaming(
+            ["systemctl", "status", "nginx", "--no-pager"], log))
+        registry.register("svc-postgres", lambda m, log: self._run_streaming(
+            ["systemctl", "status", "postgresql", "--no-pager"], log))
+        registry.register("svc-redis", lambda m, log: self._run_streaming(
+            ["systemctl", "status", "redis", "--no-pager"], log))
+        registry.register("svc-ssh", lambda m, log: self._run_streaming(
+            ["systemctl", "status", "sshd", "--no-pager"], log))
+        registry.register("svc-docker", lambda m, log: self._run_streaming(
+            ["systemctl", "status", "docker", "--no-pager"], log))
+        
+        # Storage commands
+        registry.register("disk-usage", lambda m, log: self._run_streaming(["df", "-h"], log))
+        registry.register("disk-free", lambda m, log: self._run_streaming(
+            ["df", "-h", "--output=target,avail,pcent"], log))
+        registry.register("disk-mounts", lambda m, log: self._run_streaming(["mount"], log))
+        registry.register("disk-io", lambda m, log: self._run_streaming(
+            ["iostat", "-x", "1", "1"], log))
+        registry.register("disk-largest", lambda m, log: self._run_streaming(
+            ["sudo", "sh", "-c", "du -ah / --max-depth=3 2>/dev/null | sort -rh | head -20"], 
+            log, shell=False))
+        registry.register("disk-inodes", lambda m, log: self._run_streaming(["df", "-i"], log))
+        registry.register("zfs-status", lambda m, log: self._run_streaming(["zpool", "status"], log))
+        registry.register("zfs-list", lambda m, log: self._run_streaming(["zfs", "list"], log))
+        registry.register("zfs-snapshots", lambda m, log: self._run_streaming(
+            ["zfs", "list", "-t", "snapshot"], log))
+        registry.register("smart-status", lambda m, log: self._run_smart_status(log))
+        
+        # Virtual Machine commands
+        registry.register("vm-create", lambda m, log: self._vm_create_helper(log))
+        registry.register("vm-list-all", self._vm_list_all_handler)
+        registry.register("vm-info", lambda m, log: self._vm_info_helper(log))
+        registry.register("vm-start", lambda m, log: self._vm_start_helper(log))
+        registry.register("vm-shutdown", lambda m, log: self._vm_shutdown_helper(log))
+        registry.register("vm-reboot", lambda m, log: self._vm_reboot_helper(log))
+        registry.register("vm-force-stop", lambda m, log: self._vm_force_stop_helper(log))
+        registry.register("vm-suspend", lambda m, log: self._vm_suspend_helper(log))
+        registry.register("vm-resume", lambda m, log: self._vm_resume_helper(log))
+        registry.register("vm-console", lambda m, log: self._vm_console_helper(log))
+        registry.register("vm-stats", lambda m, log: self._run_vm_stats(log))
+        registry.register("vm-networks", lambda m, log: self._run_streaming(
+            ["virsh", "net-list", "--all"], log))
+        registry.register("vm-pools", lambda m, log: self._run_streaming(
+            ["virsh", "pool-list", "--all"], log))
+        registry.register("vm-domains", lambda m, log: self._run_streaming(
+            ["virsh", "list", "--all"], log))
+    
+    def _vm_list_all_handler(self, machine: Optional[str], output_log: OutputLog) -> None:
+        """Handler for vm-list-all that checks for virsh availability."""
+        if not shutil.which("virsh"):
+            output_log.write_line("Error: virsh command not found.\n")
+            output_log.write_line("Make sure libvirt is installed: nix-shell -p libvirt\n")
+            spinner = self.query_one("#spinner", Spinner)
+            spinner.stop()
+        else:
+            self._run_vm_list_command(output_log, all_vms=True)
     
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -1598,200 +1888,15 @@ class ManageApp(App):
         self._run_action(action_id, machine, output_log)
     
     def _run_action(self, action_id: str, machine: Optional[str], output_log: OutputLog) -> None:
-        """Run the actual command for an action."""
-        
-        # NixOS commands
-        if action_id == "switch":
-            self._run_streaming(["sudo", "nixos-rebuild", "switch", "--flake", f".#{machine}"], output_log)
-        elif action_id == "boot":
-            self._run_streaming(["sudo", "nixos-rebuild", "boot", "--flake", f".#{machine}"], output_log)
-        elif action_id == "update-nixpkgs":
-            self._run_streaming(["nix", "flake", "update", "nixpkgs", "--extra-experimental-features", "nix-command flakes"], output_log)
-        elif action_id == "rebuild-all":
-            self._rebuild_all_machines(output_log)
-        elif action_id == "status":
-            self._run_streaming(["nixos-rebuild", "list-generations"], output_log)
-        elif action_id == "health":
-            self._run_health_check(output_log)
-        elif action_id == "gc":
-            self._run_streaming(["sudo", "nix-collect-garbage", "-d"], output_log)
-        elif action_id == "list":
-            self._list_machines(output_log)
-        elif action_id == "devshells":
-            self._list_devshells(output_log)
-        
-        # Docker commands
-        elif action_id == "docker-ps":
-            self._run_streaming(["docker", "ps"], output_log)
-        elif action_id == "docker-ps-all":
-            self._run_streaming(["docker", "ps", "-a"], output_log)
-        elif action_id == "docker-images":
-            self._run_streaming(["docker", "images"], output_log)
-        elif action_id == "docker-compose-up":
-            self._run_streaming(["docker", "compose", "up", "-d"], output_log)
-        elif action_id == "docker-compose-down":
-            self._run_streaming(["docker", "compose", "down"], output_log)
-        elif action_id == "docker-compose-logs":
-            self._run_streaming(["docker", "compose", "logs", "--tail=50"], output_log)
-        elif action_id == "docker-prune-all":
-            self._run_streaming(["docker", "system", "prune", "-af", "--volumes"], output_log)
-        elif action_id == "docker-stats":
-            self._run_streaming(["docker", "stats", "--no-stream"], output_log)
-        elif action_id == "docker-networks":
-            self._run_streaming(["docker", "network", "ls"], output_log)
-        elif action_id == "docker-volumes":
-            self._run_streaming(["docker", "volume", "ls"], output_log)
-        elif action_id == "docker-restart-all":
-            self._run_streaming(["sh", "-c", "docker restart $(docker ps -q)"], output_log, shell=False)
-        
-        # System commands
-        elif action_id == "sys-info":
-            self._run_system_info(output_log)
-        elif action_id == "sys-memory":
-            self._run_streaming(["free", "-h"], output_log)
-        elif action_id == "sys-cpu":
-            self._run_streaming(["lscpu"], output_log)
-        elif action_id == "sys-processes":
-            self._run_streaming(["ps", "aux", "--sort=-%mem"], output_log)
-        elif action_id == "sys-services":
-            self._run_streaming(["systemctl", "--failed"], output_log)
-        elif action_id == "sys-logs":
-            self._run_streaming(["journalctl", "-n", "50", "--no-pager"], output_log)
-        elif action_id == "sys-boot-logs":
-            self._run_streaming(["journalctl", "-b", "-n", "50", "--no-pager"], output_log)
-        elif action_id == "sys-reboot":
-            self._run_streaming(["sudo", "systemctl", "reboot"], output_log)
-        elif action_id == "sys-shutdown":
-            self._run_streaming(["sudo", "systemctl", "poweroff"], output_log)
-        
-        # Git commands
-        elif action_id == "git-status":
-            self._run_streaming(["git", "status"], output_log)
-        elif action_id == "git-pull":
-            self._run_git_pull_with_check(output_log)
-        elif action_id == "git-push":
-            self._run_streaming(["git", "push"], output_log)
-        elif action_id == "git-log":
-            self._run_streaming(["git", "log", "--oneline", "-20"], output_log)
-        elif action_id == "git-diff":
-            self._run_streaming(["git", "diff"], output_log)
-        elif action_id == "git-branch":
-            self._run_streaming(["git", "branch", "-a"], output_log)
-        elif action_id == "git-stash":
-            self._run_streaming(["git", "stash"], output_log)
-        elif action_id == "git-stash-pop":
-            self._run_streaming(["git", "stash", "pop"], output_log)
-        elif action_id == "git-fetch":
-            self._run_streaming(["git", "fetch", "--all"], output_log)
-        elif action_id == "git-reset":
-            self._run_streaming(["git", "reset", "--hard", "HEAD"], output_log)
-        elif action_id == "git-clean":
-            self._run_streaming(["git", "clean", "-fd"], output_log)
-        
-        # Network commands
-        elif action_id == "net-ip":
-            self._run_streaming(["ip", "addr", "show"], output_log)
-        elif action_id == "net-connections":
-            self._run_streaming(["ss", "-tuln"], output_log)
-        elif action_id == "net-ports":
-            self._run_streaming(["ss", "-tlnp"], output_log)
-        elif action_id == "net-ping":
-            self._run_ping_test(output_log)
-        elif action_id == "net-dns":
-            self._run_dns_test(output_log)
-        elif action_id == "net-trace":
-            self._run_streaming(["traceroute", "-m", "15", "8.8.8.8"], output_log)
-        elif action_id == "net-wifi":
-            self._run_streaming(["nmcli", "device", "wifi", "list"], output_log)
-        elif action_id == "net-firewall":
-            self._run_streaming(["sudo", "iptables", "-L", "-n"], output_log)
-        elif action_id == "net-bandwidth":
-            self._run_bandwidth_test(output_log)
-        
-        # Services commands
-        elif action_id == "svc-list":
-            self._run_streaming(["systemctl", "list-units", "--type=service", "--no-pager"], output_log)
-        elif action_id == "svc-running":
-            self._run_streaming(["systemctl", "list-units", "--type=service", "--state=running", "--no-pager"], output_log)
-        elif action_id == "svc-failed":
-            self._run_streaming(["systemctl", "--failed", "--no-pager"], output_log)
-        elif action_id == "svc-timers":
-            self._run_streaming(["systemctl", "list-timers", "--no-pager"], output_log)
-        elif action_id == "svc-reload":
-            self._run_streaming(["sudo", "systemctl", "daemon-reload"], output_log)
-        elif action_id == "svc-nginx":
-            self._run_streaming(["systemctl", "status", "nginx", "--no-pager"], output_log)
-        elif action_id == "svc-postgres":
-            self._run_streaming(["systemctl", "status", "postgresql", "--no-pager"], output_log)
-        elif action_id == "svc-redis":
-            self._run_streaming(["systemctl", "status", "redis", "--no-pager"], output_log)
-        elif action_id == "svc-ssh":
-            self._run_streaming(["systemctl", "status", "sshd", "--no-pager"], output_log)
-        elif action_id == "svc-docker":
-            self._run_streaming(["systemctl", "status", "docker", "--no-pager"], output_log)
-        
-        # Storage commands
-        elif action_id == "disk-usage":
-            self._run_streaming(["df", "-h"], output_log)
-        elif action_id == "disk-free":
-            self._run_streaming(["df", "-h", "--output=target,avail,pcent"], output_log)
-        elif action_id == "disk-mounts":
-            self._run_streaming(["mount"], output_log)
-        elif action_id == "disk-io":
-            self._run_streaming(["iostat", "-x", "1", "1"], output_log)
-        elif action_id == "disk-largest":
-            self._run_streaming(["sudo", "sh", "-c", "du -ah / --max-depth=3 2>/dev/null | sort -rh | head -20"], output_log, shell=False)
-        elif action_id == "disk-inodes":
-            self._run_streaming(["df", "-i"], output_log)
-        elif action_id == "zfs-status":
-            self._run_streaming(["zpool", "status"], output_log)
-        elif action_id == "zfs-list":
-            self._run_streaming(["zfs", "list"], output_log)
-        elif action_id == "zfs-snapshots":
-            self._run_streaming(["zfs", "list", "-t", "snapshot"], output_log)
-        elif action_id == "smart-status":
-            self._run_smart_status(output_log)
-        
-        # Virtual Machine commands
-        elif action_id == "vm-create":
-            self._vm_create_helper(output_log)
-        elif action_id == "vm-list-all":
-            # Check if virsh is available first
-            if not shutil.which("virsh"):
-                output_log.write_line("Error: virsh command not found.\n")
-                output_log.write_line("Make sure libvirt is installed: nix-shell -p libvirt\n")
-                spinner = self.query_one("#spinner", Spinner)
-                spinner.stop()
-            else:
-                # Try system session first, then fall back to session
-                self._run_vm_list_command(output_log, all_vms=True)
-        elif action_id == "vm-info":
-            self._vm_info_helper(output_log)
-        elif action_id == "vm-start":
-            self._vm_start_helper(output_log)
-        elif action_id == "vm-shutdown":
-            self._vm_shutdown_helper(output_log)
-        elif action_id == "vm-reboot":
-            self._vm_reboot_helper(output_log)
-        elif action_id == "vm-force-stop":
-            self._vm_force_stop_helper(output_log)
-        elif action_id == "vm-suspend":
-            self._vm_suspend_helper(output_log)
-        elif action_id == "vm-resume":
-            self._vm_resume_helper(output_log)
-        elif action_id == "vm-console":
-            self._vm_console_helper(output_log)
-        elif action_id == "vm-stats":
-            self._run_vm_stats(output_log)
-        elif action_id == "vm-networks":
-            self._run_streaming(["virsh", "net-list", "--all"], output_log)
-        elif action_id == "vm-pools":
-            self._run_streaming(["virsh", "pool-list", "--all"], output_log)
-        elif action_id == "vm-domains":
-            self._run_streaming(["virsh", "list", "--all"], output_log)
-        
-        else:
+        """Run the actual command for an action using the command registry."""
+        try:
+            self._command_registry.execute(action_id, machine, output_log)
+        except KeyError:
             output_log.write_line(f"Unknown action: {action_id}\n")
+            spinner = self.query_one("#spinner", Spinner)
+            spinner.stop()
+        except Exception as e:
+            output_log.write_line(f"Error executing action '{action_id}': {e}\n")
             spinner = self.query_one("#spinner", Spinner)
             spinner.stop()
     

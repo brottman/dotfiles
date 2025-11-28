@@ -1,0 +1,467 @@
+# Manage Script Actions Configuration
+# This file defines all available actions for the manage.py script.
+# Format: Each category contains a list of actions with the following fields:
+#   - id: Unique identifier for the action
+#   - title: Display name
+#   - description: Help text shown to user
+#   - dangerous: Whether action requires confirmation (true/false)
+#   - requires_machine: Whether action needs a machine name (true/false)
+
+tabs:
+  - id: system
+    name: System
+    icon: "🖥️"
+  - id: nixos
+    name: NixOS
+    icon: "❄️"
+  - id: docker
+    name: Docker
+    icon: "🐳"
+  - id: git
+    name: Git
+    icon: "📂"
+  - id: network
+    name: Network
+    icon: "🌐"
+  - id: services
+    name: Services
+    icon: "⚙️"
+  - id: storage
+    name: Storage
+    icon: "💾"
+  - id: vm
+    name: Virtual Machines
+    icon: "💻"
+
+actions:
+  nixos:
+    - id: switch
+      title: Switch Configuration
+      description: Apply NixOS configuration immediately using nixos-rebuild switch
+      dangerous: false
+      requires_machine: true
+    - id: boot
+      title: Boot Configuration
+      description: Build and set configuration for next boot without activating
+      dangerous: false
+      requires_machine: true
+    - id: update-nixpkgs
+      title: Update Nixpkgs
+      description: Update only the nixpkgs input
+      dangerous: false
+      requires_machine: false
+    - id: rebuild-all
+      title: Rebuild All Machines
+      description: Build configurations for all defined machines
+      dangerous: false
+      requires_machine: false
+    - id: status
+      title: List Generations
+      description: Show current and available NixOS generations
+      dangerous: false
+      requires_machine: true
+    - id: gc
+      title: Garbage Collection
+      description: Remove old generations and free up disk space
+      dangerous: false
+      requires_machine: false
+    - id: list
+      title: List Machines
+      description: Show all available machine configurations
+      dangerous: false
+      requires_machine: false
+    - id: devshells
+      title: Show devShells
+      description: List all available development shells from the flake
+      dangerous: false
+      requires_machine: false
+
+  docker:
+    - id: docker-ps
+      title: List Containers
+      description: Show all running Docker containers
+      dangerous: false
+      requires_machine: false
+    - id: docker-ps-all
+      title: List All Containers
+      description: Show all containers including stopped ones
+      dangerous: false
+      requires_machine: false
+    - id: docker-images
+      title: List Images
+      description: Show all Docker images on the system
+      dangerous: false
+      requires_machine: false
+    - id: docker-compose-up
+      title: Compose Up
+      description: Start all services defined in docker-compose.yml
+      dangerous: false
+      requires_machine: false
+    - id: docker-compose-down
+      title: Compose Down
+      description: Stop and remove all composed services
+      dangerous: false
+      requires_machine: false
+    - id: docker-compose-logs
+      title: Compose Logs
+      description: View logs from all composed services
+      dangerous: false
+      requires_machine: false
+    - id: docker-prune-all
+      title: Full Prune
+      description: Remove all unused data including volumes
+      dangerous: true
+      requires_machine: false
+    - id: docker-stats
+      title: Container Stats
+      description: Show real-time resource usage of containers
+      dangerous: false
+      requires_machine: false
+    - id: docker-networks
+      title: List Networks
+      description: Show all Docker networks
+      dangerous: false
+      requires_machine: false
+    - id: docker-volumes
+      title: List Volumes
+      description: Show all Docker volumes
+      dangerous: false
+      requires_machine: false
+    - id: docker-restart-all
+      title: Restart All
+      description: Restart all running containers
+      dangerous: true
+      requires_machine: false
+
+  system:
+    - id: health
+      title: Health Check
+      description: Run comprehensive system health diagnostics
+      dangerous: false
+      requires_machine: false
+    - id: sys-info
+      title: System Info
+      description: Display detailed system information including uptime
+      dangerous: false
+      requires_machine: false
+    - id: sys-memory
+      title: Memory Usage
+      description: Display memory and swap usage statistics
+      dangerous: false
+      requires_machine: false
+    - id: sys-cpu
+      title: CPU Info
+      description: Show CPU information and current usage
+      dangerous: false
+      requires_machine: false
+    - id: sys-processes
+      title: Top Processes
+      description: List processes sorted by resource usage
+      dangerous: false
+      requires_machine: false
+    - id: sys-services
+      title: Failed Services
+      description: Show any failed systemd services
+      dangerous: false
+      requires_machine: false
+    - id: sys-logs
+      title: System Logs
+      description: View recent system journal logs
+      dangerous: false
+      requires_machine: false
+    - id: sys-boot-logs
+      title: Boot Logs
+      description: View logs from the current boot
+      dangerous: false
+      requires_machine: false
+    - id: sys-reboot
+      title: Reboot System
+      description: Safely reboot the system
+      dangerous: true
+      requires_machine: false
+    - id: sys-shutdown
+      title: Shutdown
+      description: Safely shutdown the system
+      dangerous: true
+      requires_machine: false
+
+  git:
+    - id: git-status
+      title: Status
+      description: Show the working tree status
+      dangerous: false
+      requires_machine: false
+    - id: git-pull
+      title: Pull
+      description: Fetch and merge changes from remote
+      dangerous: false
+      requires_machine: false
+    - id: git-push
+      title: Push
+      description: Push local commits to remote
+      dangerous: false
+      requires_machine: false
+    - id: git-log
+      title: Log
+      description: Show recent commit history
+      dangerous: false
+      requires_machine: false
+    - id: git-diff
+      title: Diff
+      description: Show uncommitted changes
+      dangerous: false
+      requires_machine: false
+    - id: git-branch
+      title: Branches
+      description: List all branches
+      dangerous: false
+      requires_machine: false
+    - id: git-stash
+      title: Stash
+      description: Stash current changes
+      dangerous: false
+      requires_machine: false
+    - id: git-stash-pop
+      title: Stash Pop
+      description: Apply and remove the latest stash
+      dangerous: false
+      requires_machine: false
+    - id: git-fetch
+      title: Fetch
+      description: Download objects from remote
+      dangerous: false
+      requires_machine: false
+    - id: git-reset
+      title: Reset Hard
+      description: Reset working directory to HEAD
+      dangerous: true
+      requires_machine: false
+    - id: git-clean
+      title: Clean
+      description: Remove untracked files
+      dangerous: true
+      requires_machine: false
+
+  network:
+    - id: net-ip
+      title: Network Status
+      description: Display all IP addresses
+      dangerous: false
+      requires_machine: false
+    - id: net-connections
+      title: Active Connections
+      description: Show all active network connections
+      dangerous: false
+      requires_machine: false
+    - id: net-ports
+      title: Listening Ports
+      description: Show all listening ports
+      dangerous: false
+      requires_machine: false
+    - id: net-ping
+      title: Ping Test
+      description: Test connectivity to common endpoints
+      dangerous: false
+      requires_machine: false
+    - id: net-dns
+      title: DNS Lookup
+      description: Perform DNS resolution tests
+      dangerous: false
+      requires_machine: false
+    - id: net-trace
+      title: Traceroute
+      description: Trace route to a destination
+      dangerous: false
+      requires_machine: false
+    - id: net-wifi
+      title: WiFi Status
+      description: Show WiFi connection status
+      dangerous: false
+      requires_machine: false
+    - id: net-firewall
+      title: Firewall Rules
+      description: Display current firewall rules
+      dangerous: false
+      requires_machine: false
+    - id: net-bandwidth
+      title: Bandwidth Test
+      description: Test network bandwidth (requires speedtest-cli)
+      dangerous: false
+      requires_machine: false
+
+  services:
+    - id: svc-list
+      title: List Services
+      description: Show all systemd services
+      dangerous: false
+      requires_machine: false
+    - id: svc-running
+      title: Running Services
+      description: Show only running services
+      dangerous: false
+      requires_machine: false
+    - id: svc-failed
+      title: Failed Services
+      description: Show failed services
+      dangerous: false
+      requires_machine: false
+    - id: svc-timers
+      title: Active Timers
+      description: Show all active systemd timers
+      dangerous: false
+      requires_machine: false
+    - id: svc-reload
+      title: Reload Daemon
+      description: Reload systemd daemon configuration
+      dangerous: false
+      requires_machine: false
+    - id: svc-nginx
+      title: Nginx Status
+      description: Check nginx web server status
+      dangerous: false
+      requires_machine: false
+    - id: svc-postgres
+      title: PostgreSQL Status
+      description: Check PostgreSQL database status
+      dangerous: false
+      requires_machine: false
+    - id: svc-redis
+      title: Redis Status
+      description: Check Redis cache status
+      dangerous: false
+      requires_machine: false
+    - id: svc-ssh
+      title: SSH Status
+      description: Check SSH server status
+      dangerous: false
+      requires_machine: false
+    - id: svc-docker
+      title: Docker Status
+      description: Check Docker daemon status
+      dangerous: false
+      requires_machine: false
+
+  storage:
+    - id: disk-usage
+      title: Disk Usage
+      description: Show disk space usage for all mounts
+      dangerous: false
+      requires_machine: false
+    - id: disk-free
+      title: Free Space
+      description: Show available disk space
+      dangerous: false
+      requires_machine: false
+    - id: disk-mounts
+      title: Mount Points
+      description: List all mounted filesystems
+      dangerous: false
+      requires_machine: false
+    - id: disk-io
+      title: I/O Stats
+      description: Show disk I/O statistics
+      dangerous: false
+      requires_machine: false
+    - id: disk-largest
+      title: Largest Files
+      description: Find the largest files on disk
+      dangerous: false
+      requires_machine: false
+    - id: disk-inodes
+      title: Inode Usage
+      description: Show inode usage for filesystems
+      dangerous: false
+      requires_machine: false
+    - id: zfs-status
+      title: ZFS Status
+      description: Show ZFS pool status
+      dangerous: false
+      requires_machine: false
+    - id: zfs-list
+      title: ZFS Datasets
+      description: List all ZFS datasets
+      dangerous: false
+      requires_machine: false
+    - id: zfs-snapshots
+      title: ZFS Snapshots
+      description: List all ZFS snapshots
+      dangerous: false
+      requires_machine: false
+    - id: smart-status
+      title: SMART Status
+      description: Check disk health via SMART
+      dangerous: false
+      requires_machine: false
+
+  vm:
+    - id: vm-create
+      title: Create VM
+      description: Create a new virtual machine (interactive wizard)
+      dangerous: false
+      requires_machine: false
+    - id: vm-list-all
+      title: List All VMs
+      description: Show all VMs including inactive ones
+      dangerous: false
+      requires_machine: false
+    - id: vm-info
+      title: VM Info
+      description: Show detailed information about a VM
+      dangerous: false
+      requires_machine: false
+    - id: vm-start
+      title: Start VM
+      description: Start a virtual machine
+      dangerous: false
+      requires_machine: false
+    - id: vm-shutdown
+      title: Shutdown VM
+      description: Gracefully shutdown a virtual machine
+      dangerous: false
+      requires_machine: false
+    - id: vm-reboot
+      title: Reboot VM
+      description: Reboot a virtual machine
+      dangerous: false
+      requires_machine: false
+    - id: vm-force-stop
+      title: Force Stop VM
+      description: Forcefully stop a virtual machine
+      dangerous: true
+      requires_machine: false
+    - id: vm-suspend
+      title: Suspend VM
+      description: Suspend a virtual machine to disk
+      dangerous: false
+      requires_machine: false
+    - id: vm-resume
+      title: Resume VM
+      description: Resume a suspended virtual machine
+      dangerous: false
+      requires_machine: false
+    - id: vm-console
+      title: VM Console
+      description: Open console for a virtual machine
+      dangerous: false
+      requires_machine: false
+    - id: vm-stats
+      title: VM Stats
+      description: Show resource usage statistics for VMs
+      dangerous: false
+      requires_machine: false
+    - id: vm-networks
+      title: List Networks
+      description: Show all virtual networks
+      dangerous: false
+      requires_machine: false
+    - id: vm-pools
+      title: List Storage Pools
+      description: Show all storage pools
+      dangerous: false
+      requires_machine: false
+    - id: vm-domains
+      title: List Domains
+      description: Show all libvirt domains
+      dangerous: false
+      requires_machine: false
+
