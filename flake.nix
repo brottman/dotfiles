@@ -82,30 +82,6 @@
             age
           ];
         };
-
-        # Python 3.13 development shell
-        python = pkgs.mkShell {
-          buildInputs = with pkgs; [
-            python313
-            python313Packages.pip
-            python313Packages.setuptools
-            python313Packages.wheel
-            python313Packages.virtualenv
-            python313Packages.black
-            python313Packages.pytest
-            python313Packages.ipython
-
-            #Skylight dependencies
-            python313Packages.django
-            python313Packages.pillow
-            python313Packages.requests
-            python313Packages.beautifulsoup4
-            python313Packages.google-api-python-client
-            python313Packages.google-auth
-            python313Packages.google-auth-httplib2
-            python313Packages.google-auth-oauthlib
-          ];
-        };
       };
     };
 }
