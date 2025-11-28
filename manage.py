@@ -20,6 +20,7 @@ import hashlib
 from pathlib import Path
 from typing import Optional, List, Tuple, Dict, Any, Callable, Union
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 
 try:
     import yaml
@@ -267,6 +268,83 @@ TABS = _get_tabs()
 ACTIONS = _get_actions()
 
 MACHINES = ["brian-laptop", "superheavy", "docker", "backup"]
+
+
+# =============================================================================
+# Cache Manager
+# =============================================================================
+
+class CacheManager:
+    """
+    Simple TTL-based cache manager for expensive operations.
+    Caches results with a time-to-live (TTL) to avoid repeated expensive calls.
+    """
+    
+    def __init__(self, default_ttl_seconds: int = 300):
+        """
+        Initialize the cache manager.
+        
+        Args:
+            default_ttl_seconds: Default TTL in seconds (default: 5 minutes)
+        """
+        self._cache: Dict[str, Tuple[Any, datetime]] = {}
+        self._default_ttl = timedelta(seconds=default_ttl_seconds)
+        self._ttl_overrides: Dict[str, timedelta] = {}
+    
+    def get(self, key: str) -> Optional[Any]:
+        """
+        Get a value from the cache if it exists and hasn't expired.
+        
+        Args:
+            key: Cache key
+            
+        Returns:
+            Cached value if available and not expired, None otherwise
+        """
+        if key not in self._cache:
+            return None
+        
+        value, timestamp = self._cache[key]
+        ttl = self._ttl_overrides.get(key, self._default_ttl)
+        
+        if datetime.now() - timestamp < ttl:
+            return value
+        
+        # Expired, remove from cache
+        del self._cache[key]
+        return None
+    
+    def set(self, key: str, value: Any, ttl_seconds: Optional[int] = None) -> None:
+        """
+        Store a value in the cache.
+        
+        Args:
+            key: Cache key
+            value: Value to cache
+            ttl_seconds: Optional TTL override in seconds
+        """
+        self._cache[key] = (value, datetime.now())
+        if ttl_seconds is not None:
+            self._ttl_overrides[key] = timedelta(seconds=ttl_seconds)
+    
+    def invalidate(self, key: Optional[str] = None) -> None:
+        """
+        Invalidate cache entry(ies).
+        
+        Args:
+            key: Specific key to invalidate, or None to clear all cache
+        """
+        if key is None:
+            self._cache.clear()
+            self._ttl_overrides.clear()
+        elif key in self._cache:
+            del self._cache[key]
+            if key in self._ttl_overrides:
+                del self._ttl_overrides[key]
+    
+    def clear(self) -> None:
+        """Clear all cache entries."""
+        self.invalidate()
 
 
 # =============================================================================
@@ -1818,7 +1896,16 @@ class ManageApp(App):
         super().__init__()
         self.title = "System Management Console"
         self.flake_path: Path = Path(__file__).parent.absolute()
-        self.machines_list: List[str] = MACHINES
+        
+        # Initialize cache manager with different TTLs for different operations
+        # - Machine list: 5 minutes (changes infrequently)
+        # - DevShell list: 5 minutes (changes infrequently)
+        # - Flake metadata: 2 minutes (used for validation)
+        # - Command availability: 10 minutes (very stable)
+        self._cache_manager = CacheManager(default_ttl_seconds=300)
+        
+        # Load machines list (with caching)
+        self.machines_list: List[str] = self._get_machines_list_cached()
         self.current_machine: Optional[str] = self._detect_current_machine()
         self.machine_index: int = 0
         if self.current_machine in self.machines_list:
@@ -1828,8 +1915,6 @@ class ManageApp(App):
         self._pending_dangerous_action = None  # (action_id, title, requires_machine)
         self._dangerous_confirmation_count = 0
         self._last_failed_action: Optional[Tuple[str, Optional[str]]] = None  # (action_id, machine)
-        self._validated_machines: Optional[Dict[str, bool]] = None  # Cache for machine validation
-        self._machine_validation_timestamp: Optional[float] = None  # When validation was last done
         
         # Initialize command registry
         self._command_registry = CommandRegistry()
@@ -2081,7 +2166,7 @@ class ManageApp(App):
     
     def _check_command_available(self, cmd: str) -> bool:
         """
-        Check if a command is available in PATH.
+        Check if a command is available in PATH (with caching).
         
         Args:
             cmd: Command name to check
@@ -2089,7 +2174,19 @@ class ManageApp(App):
         Returns:
             True if command is available, False otherwise
         """
-        return shutil.which(cmd) is not None
+        # Check cache first (command availability is stable, cache for 10 minutes)
+        cache_key = f"command_available_{cmd}"
+        cached = self._cache_manager.get(cache_key)
+        if cached is not None:
+            return cached
+        
+        # Check command availability
+        is_available = shutil.which(cmd) is not None
+        
+        # Cache for 10 minutes (command availability rarely changes)
+        self._cache_manager.set(cache_key, is_available, ttl_seconds=600)
+        
+        return is_available
     
     def _check_sudo_available(self) -> bool:
         """
@@ -2190,6 +2287,74 @@ class ManageApp(App):
         
         return command_map.get(action_id, [])
     
+    def _get_machines_list_cached(self) -> List[str]:
+        """
+        Get the list of machines from the flake, using cache if available.
+        
+        Returns:
+            List of machine names
+        """
+        cache_key = "machines_list"
+        cached = self._cache_manager.get(cache_key)
+        if cached is not None:
+            return cached
+        
+        # Try to get machines from flake
+        try:
+            result = subprocess.run(
+                ["nix", "flake", "show", "--json"],
+                cwd=self.flake_path,
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            if result.returncode == 0:
+                data = json.loads(result.stdout)
+                machines = list(data.get("nixosConfigurations", {}).keys())
+                if machines:
+                    # Cache for 5 minutes
+                    self._cache_manager.set(cache_key, machines, ttl_seconds=300)
+                    return machines
+        except (subprocess.TimeoutExpired, subprocess.CalledProcessError, json.JSONDecodeError, Exception):
+            pass
+        
+        # Fallback to default list
+        return MACHINES
+    
+    def _get_machines_list_cached(self) -> List[str]:
+        """
+        Get the list of machines from the flake, using cache if available.
+        
+        Returns:
+            List of machine names
+        """
+        cache_key = "machines_list"
+        cached = self._cache_manager.get(cache_key)
+        if cached is not None:
+            return cached
+        
+        # Try to get machines from flake
+        try:
+            result = subprocess.run(
+                ["nix", "flake", "show", "--json"],
+                cwd=self.flake_path,
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            if result.returncode == 0:
+                data = json.loads(result.stdout)
+                machines = list(data.get("nixosConfigurations", {}).keys())
+                if machines:
+                    # Cache for 5 minutes
+                    self._cache_manager.set(cache_key, machines, ttl_seconds=300)
+                    return machines
+        except (subprocess.TimeoutExpired, subprocess.CalledProcessError, json.JSONDecodeError, Exception):
+            pass
+        
+        # Fallback to default list
+        return MACHINES
+    
     def _validate_machine(self, machine: str) -> bool:
         """
         Validate that machine exists in flake configuration.
@@ -2201,17 +2366,11 @@ class ManageApp(App):
         Returns:
             True if machine exists in flake, False otherwise
         """
-        # Use cache if available and recent (within 5 minutes)
-        import time as time_module
-        current_time = time_module.time()
-        cache_valid = (
-            self._validated_machines is not None and
-            self._machine_validation_timestamp is not None and
-            (current_time - self._machine_validation_timestamp) < 300  # 5 minutes
-        )
-        
-        if cache_valid and machine in self._validated_machines:
-            return self._validated_machines[machine]
+        # Check cache first (using CacheManager)
+        cache_key = f"machine_validation_{machine}"
+        cached = self._cache_manager.get(cache_key)
+        if cached is not None:
+            return cached
         
         # Validate against flake
         try:
@@ -2226,18 +2385,15 @@ class ManageApp(App):
                 data = json.loads(result.stdout)
                 machines = data.get("nixosConfigurations", {})
                 
-                # Update cache
-                if self._validated_machines is None:
-                    self._validated_machines = {}
-                
                 # Check all known machines and cache results
                 for known_machine in self.machines_list:
-                    self._validated_machines[known_machine] = known_machine in machines
+                    cache_key_known = f"machine_validation_{known_machine}"
+                    is_valid_known = known_machine in machines
+                    self._cache_manager.set(cache_key_known, is_valid_known, ttl_seconds=300)
                 
                 # Also check the requested machine
                 is_valid = machine in machines
-                self._validated_machines[machine] = is_valid
-                self._machine_validation_timestamp = current_time
+                self._cache_manager.set(cache_key, is_valid, ttl_seconds=300)
                 
                 return is_valid
         except (subprocess.TimeoutExpired, subprocess.CalledProcessError, json.JSONDecodeError, Exception):
@@ -3284,27 +3440,35 @@ class ManageApp(App):
         """List all available development shells from the flake."""
         def run_in_thread():
             try:
-                # Get flake output as JSON
-                result = subprocess.run(
-                    ["nix", "flake", "show", "--json"],
-                    cwd=str(self.flake_path),
-                    capture_output=True,
-                    text=True,
-                    timeout=30
-                )
-                
-                if result.returncode != 0:
-                    self.call_from_thread(output_log.write_line, f"Error running nix flake show:\n{result.stderr}\n")
-                    self.call_from_thread(self._get_spinner().stop)
-                    return
-                
-                # Parse JSON output
-                try:
-                    flake_data = json.loads(result.stdout)
-                except json.JSONDecodeError as e:
-                    self.call_from_thread(output_log.write_line, f"Error parsing flake output: {e}\n")
-                    self.call_from_thread(self._get_spinner().stop)
-                    return
+                # Check cache first
+                cache_key = "devshells_list"
+                cached = self._cache_manager.get(cache_key)
+                if cached is not None:
+                    flake_data = cached
+                else:
+                    # Get flake output as JSON
+                    result = subprocess.run(
+                        ["nix", "flake", "show", "--json"],
+                        cwd=str(self.flake_path),
+                        capture_output=True,
+                        text=True,
+                        timeout=30
+                    )
+                    
+                    if result.returncode != 0:
+                        self.call_from_thread(output_log.write_line, f"Error running nix flake show:\n{result.stderr}\n")
+                        self.call_from_thread(self._get_spinner().stop)
+                        return
+                    
+                    # Parse JSON output
+                    try:
+                        flake_data = json.loads(result.stdout)
+                        # Cache for 5 minutes
+                        self._cache_manager.set(cache_key, flake_data, ttl_seconds=300)
+                    except json.JSONDecodeError as e:
+                        self.call_from_thread(output_log.write_line, f"Error parsing flake output: {e}\n")
+                        self.call_from_thread(self._get_spinner().stop)
+                        return
                 
                 # Extract devShells
                 devshells = flake_data.get("devShells", {})
