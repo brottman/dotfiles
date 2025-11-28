@@ -54,6 +54,7 @@
     docker-compose
     python3Packages.rich
     python3Packages.textual
+    smartmontools
     speedtest-cli
   ];
 

@@ -6,7 +6,7 @@
         description = "ZFS send backup from superheavy";
         serviceConfig = {
             Type = "oneshot";
-            User = "root";
+            User = "brian";
         };
         script = ''${pkgs.sanoid}/bin/syncoid -r --delete-target-snapshots superheavy:datapool/backup backpool/backup'';
     };
@@ -24,7 +24,7 @@
         description = "ZFS send brian dataset from superheavy";
         serviceConfig = {
             Type = "oneshot";
-            User = "root";
+            User = "brian";
         };
         script = ''${pkgs.sanoid}/bin/syncoid -r --delete-target-snapshots superheavy:datapool/brian backpool/brian'';
     };
@@ -42,7 +42,7 @@
         description = "ZFS send data dataset from superheavy";
         serviceConfig = {
             Type = "oneshot";
-            User = "root";
+            User = "brian";
         };
         script = ''${pkgs.sanoid}/bin/syncoid -r --delete-target-snapshots superheavy:datapool/data backpool/data'';
     };
@@ -60,7 +60,7 @@
         description = "ZFS send docker dataset from superheavy";
         serviceConfig = {
             Type = "oneshot";
-            User = "root";
+            User = "brian";
         };
         script = ''${pkgs.sanoid}/bin/syncoid -r --delete-target-snapshots superheavy:datapool/docker backpool/docker'';
     };
