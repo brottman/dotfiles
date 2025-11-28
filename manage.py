@@ -1,7 +1,7 @@
 #!/usr/bin/env nix-shell
 #! nix-shell -i python3 -p python3 python3Packages.rich python3Packages.textual python3Packages.pyyaml
 """
-manage.py - System Management Console v1.12
+manage.py - System Management Console v1.13
 A beautiful terminal user interface for managing NixOS, Docker, System, Git, Network, Services, and Storage.
 """
 
@@ -61,7 +61,7 @@ except ImportError:
 # Version Information
 # =============================================================================
 
-VERSION = "1.12"
+VERSION = "1.13"
 
 
 # =============================================================================
@@ -749,7 +749,7 @@ class ActionItem(Static):
             super().__init__()
     
     def __init__(self, action_id: str, title: str, desc: str, dangerous: bool, 
-                 category: str, index: int, **kwargs: Any) -> None:
+                 category: str, index: int, search_query: str = "", **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.action_id = action_id
         self.title = title
@@ -758,10 +758,39 @@ class ActionItem(Static):
         self.category = category
         self.index = index
         self._selected = False
+        self._search_query = search_query.lower()
+    
+    def _highlight_text(self, text: str) -> str:
+        """Highlight matching text in the given string."""
+        if not self._search_query:
+            return text
+        
+        # Find all matches (case-insensitive)
+        import re
+        pattern = re.escape(self._search_query)
+        matches = list(re.finditer(pattern, text, re.IGNORECASE))
+        
+        if not matches:
+            return text
+        
+        # Build highlighted text
+        result = []
+        last_end = 0
+        for match in matches:
+            # Add text before match
+            result.append(text[last_end:match.start()])
+            # Add highlighted match
+            result.append(f"[bold yellow]{match.group()}[/bold yellow]")
+            last_end = match.end()
+        
+        # Add remaining text
+        result.append(text[last_end:])
+        return "".join(result)
     
     def compose(self) -> ComposeResult:
         danger_badge = " [red]![/red]" if self.dangerous else ""
-        yield Label(f"  {self.title}{danger_badge}")
+        highlighted_title = self._highlight_text(self.title)
+        yield Label(f"  {highlighted_title}{danger_badge}")
     
     def on_click(self, event: events.Click) -> None:
         self.post_message(ActionItem.Selected(self.action_id, self.category))
@@ -771,14 +800,16 @@ class ActionItem(Static):
         self.add_class("selected")
         label = self.query_one(Label)
         danger_badge = " [red]![/red]" if self.dangerous else ""
-        label.update(f"❯ {self.title}{danger_badge}")
+        highlighted_title = self._highlight_text(self.title)
+        label.update(f"❯ {highlighted_title}{danger_badge}")
     
     def deselect(self) -> None:
         self._selected = False
         self.remove_class("selected")
         label = self.query_one(Label)
         danger_badge = " [red]![/red]" if self.dangerous else ""
-        label.update(f"  {self.title}{danger_badge}")
+        highlighted_title = self._highlight_text(self.title)
+        label.update(f"  {highlighted_title}{danger_badge}")
 
 
 class ActionList(Static, can_focus=True):
@@ -799,6 +830,8 @@ class ActionList(Static, can_focus=True):
         self.selected_index = 0
         # Actions are passed in from the app (loaded lazily)
         self.actions = actions if actions is not None else []
+        self._all_actions = list(self.actions)  # Store all actions for filtering
+        self._search_query = ""  # Current search query
     
     def compose(self) -> ComposeResult:
         with ScrollableContainer(id=f"action-scroll-{self.category}"):
@@ -808,6 +841,70 @@ class ActionList(Static, can_focus=True):
                     id=f"action-{self.category}-{idx}",
                     classes="action-item"
                 )
+    
+    def filter_actions(self, query: str) -> None:
+        """
+        Filter actions based on search query.
+        
+        Args:
+            query: Search query string (case-insensitive)
+        """
+        self._search_query = query.lower().strip()
+        
+        if not self._search_query:
+            # No filter - show all actions
+            self.actions = list(self._all_actions)
+        else:
+            # Filter actions by title or description
+            filtered = []
+            for action_id, title, desc, dangerous, requires_machine in self._all_actions:
+                if (self._search_query in title.lower() or 
+                    self._search_query in desc.lower() or
+                    self._search_query in action_id.lower()):
+                    filtered.append((action_id, title, desc, dangerous, requires_machine))
+            self.actions = filtered
+        
+        # Reset selected index if it's out of bounds
+        if self.selected_index >= len(self.actions):
+            self.selected_index = max(0, len(self.actions) - 1)
+        
+        # Rebuild the UI - find existing container or create new one
+        try:
+            # Try to get existing container
+            container = self.query_one(f"#action-scroll-{self.category}", ScrollableContainer)
+            # Remove all existing action items first
+            existing_items = list(container.query(ActionItem))
+            for item in existing_items:
+                item.remove()
+        except Exception:
+            # Container doesn't exist, remove all children and create new container
+            self.remove_children()
+            container = ScrollableContainer(id=f"action-scroll-{self.category}")
+            self.mount(container)
+        
+        # Add filtered action items - wait a moment to ensure old items are fully removed
+        def add_items():
+            try:
+                container = self.query_one(f"#action-scroll-{self.category}", ScrollableContainer)
+                for idx, (action_id, title, desc, dangerous, requires_machine) in enumerate(self.actions):
+                    action_item = ActionItem(
+                        action_id, title, desc, dangerous, self.category, idx,
+                        search_query=self._search_query,
+                        id=f"action-{self.category}-{idx}",
+                        classes="action-item"
+                    )
+                    container.mount(action_item)
+                self._highlight_selected()
+            except Exception:
+                pass
+        
+        # Use call_after_refresh to ensure old items are removed before adding new ones
+        self.call_after_refresh(add_items)
+    
+    def set_all_actions(self, actions: List[Tuple[str, str, str, bool, bool]]) -> None:
+        """Set all actions (for filtering)."""
+        self._all_actions = list(actions)
+        self.actions = list(actions)
     
     def on_mount(self) -> None:
         self._highlight_selected()
@@ -1976,6 +2073,17 @@ class ManageApp(App):
         background: $panel;
         padding: 0 1;
     }
+    
+    .search-input {
+        height: 3;
+        margin-bottom: 1;
+        border: solid $primary;
+        display: none;
+    }
+    
+    .search-input.visible {
+        display: block;
+    }
     """
     
     BINDINGS = [
@@ -1998,6 +2106,8 @@ class ManageApp(App):
         Binding("m", "cycle_machine", "Machine"),
         Binding("c", "clear_output", "Clear"),
         Binding("r", "retry_action", "Retry", show=False),
+        Binding("/", "focus_search", "Search", show=False),
+        Binding("escape", "clear_search", "Clear Search", show=False),
     ]
     
     current_tab = reactive("system")
@@ -2796,6 +2906,13 @@ class ManageApp(App):
             with Horizontal(id="content-area"):
                 # Left side: Action panel (changes based on tab selection)
                 with Vertical(id="action-panel"):
+                    # Search input (hidden by default)
+                    yield Input(
+                        placeholder="Search actions... (Press / to focus)",
+                        id="search-input",
+                        classes="search-input"
+                    )
+                    
                     # We'll dynamically update this based on tab selection
                     # Load actions lazily for the initial tab
                     # Note: We can't call _get_actions_for_category here since compose() runs before __init__ completes
@@ -2832,6 +2949,7 @@ class ManageApp(App):
             if not action_list.actions:
                 actions = self._get_actions_for_category("system")
                 action_list.actions = actions
+                action_list.set_all_actions(actions)  # Set all actions for filtering
                 # Rebuild the action list UI
                 action_list.remove_children()
                 with action_list.app.batch_update():
@@ -2928,6 +3046,7 @@ class ManageApp(App):
                 # Load actions lazily for this category
                 actions = self._get_actions_for_category(tab_id)
                 new_action_list = ActionList(tab_id, actions=actions, id="actions-current")
+                new_action_list.set_all_actions(actions)  # Set all actions for filtering
                 action_panel.mount(new_action_list)
                 # Set focus on the new action list after it's fully mounted
                 self.call_after_refresh(lambda: self.set_focus(new_action_list))
@@ -3026,6 +3145,46 @@ class ManageApp(App):
     def action_retry_action(self) -> None:
         """Retry the last failed action."""
         self._retry_last_action()
+    
+    def action_focus_search(self) -> None:
+        """Focus the search input."""
+        try:
+            search_input = self.query_one("#search-input", Input)
+            search_input.add_class("visible")
+            self.set_focus(search_input)
+            self._search_active = True
+        except Exception:
+            pass
+    
+    def action_clear_search(self) -> None:
+        """Clear and hide the search input."""
+        try:
+            search_input = self.query_one("#search-input", Input)
+            search_input.value = ""
+            search_input.remove_class("visible")
+            self._search_active = False
+            # Clear filter
+            action_list = self._get_current_action_list()
+            if action_list:
+                action_list.filter_actions("")
+            # Return focus to action list
+            if action_list:
+                self.set_focus(action_list)
+        except Exception:
+            pass
+    
+    @on(Input.Changed, "#search-input")
+    def on_search_changed(self, event: Input.Changed) -> None:
+        """Handle search input changes."""
+        query = event.value
+        action_list = self._get_current_action_list()
+        if action_list:
+            action_list.filter_actions(query)
+            # Reset selection to first item
+            if action_list.actions:
+                action_list.selected_index = 0
+                action_list._highlight_selected()
+            self._update_description()
     
     def action_execute_action(self) -> None:
         action_list = self._get_current_action_list()
