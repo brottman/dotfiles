@@ -18,7 +18,7 @@ import json
 import re
 import hashlib
 from pathlib import Path
-from typing import Optional, List, Tuple, Dict, Any, Callable
+from typing import Optional, List, Tuple, Dict, Any, Callable, Union
 from dataclasses import dataclass
 
 try:
@@ -281,7 +281,7 @@ class CommandExecutor:
     
     def __init__(self, working_dir: Path, 
                  output_callback: Optional[Callable[[str], None]] = None,
-                 spinner_callback: Optional[Callable[[str], None]] = None):
+                 spinner_callback: Optional[Callable[[str], None]] = None) -> None:
         """
         Initialize CommandExecutor.
         
@@ -428,14 +428,14 @@ class CommandRegistry:
     Allows registering and executing commands by action_id.
     """
     
-    def __init__(self):
-        self._commands: Dict[str, Callable] = {}
+    def __init__(self) -> None:
+        self._commands: Dict[str, Callable[..., None]] = {}
     
-    def register(self, action_id: str, handler: Callable) -> None:
+    def register(self, action_id: str, handler: Callable[..., None]) -> None:
         """Register a command handler for an action_id."""
         self._commands[action_id] = handler
     
-    def execute(self, action_id: str, *args, **kwargs) -> None:
+    def execute(self, action_id: str, *args: Any, **kwargs: Any) -> None:
         """
         Execute a command by action_id.
         
@@ -470,7 +470,7 @@ class ActionItem(Static):
             super().__init__()
     
     def __init__(self, action_id: str, title: str, desc: str, dangerous: bool, 
-                 category: str, index: int, **kwargs):
+                 category: str, index: int, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.action_id = action_id
         self.title = title
@@ -514,7 +514,7 @@ class ActionList(Static, can_focus=True):
             self.requires_machine = requires_machine
             super().__init__()
     
-    def __init__(self, category: str, **kwargs):
+    def __init__(self, category: str, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.category = category
         self.selected_index = 0
@@ -607,7 +607,7 @@ class Spinner(Static):
     
     SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
     
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._spinning = False
         self._frame_index = 0
@@ -1571,13 +1571,13 @@ class ManageApp(App):
     
     current_tab = reactive("system")
     
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
         self.title = f"System Management Console v{VERSION}"
-        self.flake_path = Path(__file__).parent.absolute()
-        self.machines_list = MACHINES
-        self.current_machine = self._detect_current_machine()
-        self.machine_index = 0
+        self.flake_path: Path = Path(__file__).parent.absolute()
+        self.machines_list: List[str] = MACHINES
+        self.current_machine: Optional[str] = self._detect_current_machine()
+        self.machine_index: int = 0
         if self.current_machine in self.machines_list:
             self.machine_index = self.machines_list.index(self.current_machine)
         self._current_process = None
