@@ -1064,6 +1064,69 @@ class VMCreateWizard(ModalScreen):
             raise Exception(f"virt-install failed: {result.stderr}")
 
 
+class RelaunchPrompt(ModalScreen):
+    """Modal dialog prompting user to relaunch the manage script."""
+    
+    CSS = """
+    RelaunchPrompt {
+        align: center middle;
+    }
+    
+    #relaunch-container {
+        width: 70;
+        height: auto;
+        border: solid $primary;
+        background: $surface;
+        padding: 1;
+    }
+    
+    .relaunch-title {
+        text-align: center;
+        text-style: bold;
+        padding: 1;
+        border-bottom: solid $primary;
+    }
+    
+    .relaunch-message {
+        padding: 2;
+        text-align: center;
+    }
+    
+    .relaunch-buttons {
+        height: 3;
+        align: center middle;
+        padding: 1;
+    }
+    
+    #btn-ok {
+        width: 20;
+    }
+    """
+    
+    BINDINGS = [
+        Binding("escape", "dismiss", "Dismiss"),
+        Binding("enter", "dismiss", "Dismiss"),
+    ]
+    
+    def compose(self) -> ComposeResult:
+        with Container(id="relaunch-container"):
+            yield Static("⚠️  Relaunch Required", classes="relaunch-title")
+            yield Static(
+                "The manage script has been updated.\n\n"
+                "Please relaunch the manage script to use the new version.",
+                classes="relaunch-message"
+            )
+            with Horizontal(classes="relaunch-buttons"):
+                yield Button("OK", id="btn-ok", variant="primary")
+    
+    @on(Button.Pressed, "#btn-ok")
+    def on_ok(self) -> None:
+        self.dismiss(True)
+    
+    def action_dismiss(self) -> None:
+        self.dismiss(True)
+
+
 # =============================================================================
 # Main Application
 # =============================================================================
@@ -1585,7 +1648,7 @@ class ManageApp(App):
         elif action_id == "git-status":
             self._run_streaming(["git", "status"], output_log)
         elif action_id == "git-pull":
-            self._run_streaming(["git", "pull"], output_log)
+            self._run_git_pull_with_check(output_log)
         elif action_id == "git-push":
             self._run_streaming(["git", "push"], output_log)
         elif action_id == "git-log":
@@ -1711,6 +1774,100 @@ class ManageApp(App):
             output_log.write_line(f"Unknown action: {action_id}\n")
             spinner = self.query_one("#spinner", Spinner)
             spinner.stop()
+    
+    def _get_file_hash(self, file_path: Path) -> Optional[str]:
+        """Get SHA256 hash of a file, or None if file doesn't exist."""
+        try:
+            if not file_path.exists():
+                return None
+            with open(file_path, 'rb') as f:
+                return hashlib.sha256(f.read()).hexdigest()
+        except Exception:
+            return None
+    
+    def _run_git_pull_with_check(self, output_log: OutputLog) -> None:
+        """Run git pull and check if manage scripts changed, prompting for relaunch if so."""
+        def run_in_thread():
+            try:
+                # Get file hashes before git pull
+                manage_py_path = self.flake_path / "manage.py"
+                manage_wrapper_path = self.flake_path / "manage-wrapper.sh"
+                
+                hash_before_py = self._get_file_hash(manage_py_path)
+                hash_before_wrapper = self._get_file_hash(manage_wrapper_path)
+                
+                # Run git pull
+                self.call_from_thread(output_log.write_line, "Running: git pull\n\n")
+                
+                process = subprocess.Popen(
+                    ["git", "pull"],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    cwd=self.flake_path,
+                    text=True,
+                    bufsize=1
+                )
+                
+                # Read output line by line
+                output_received = False
+                for line in process.stdout:
+                    output_received = True
+                    self.call_from_thread(output_log.write_line, line)
+                
+                process.wait()
+                
+                self.call_from_thread(output_log.write_line, "\n" + "-" * 60 + "\n")
+                
+                # Check if manage scripts changed (before stopping spinner)
+                hash_after_py = self._get_file_hash(manage_py_path)
+                hash_after_wrapper = self._get_file_hash(manage_wrapper_path)
+                
+                script_changed = (
+                    (hash_before_py is not None and hash_after_py is not None and hash_before_py != hash_after_py) or
+                    (hash_before_wrapper is not None and hash_after_wrapper is not None and hash_before_wrapper != hash_after_wrapper)
+                )
+                
+                # Stop spinner and show success/failure indicator
+                def update_ui():
+                    spinner = self.query_one("#spinner", Spinner)
+                    if process.returncode == 0:
+                        spinner.stop_success()
+                        if not output_received:
+                            output_log.write_line("Command completed (no output)\n")
+                        
+                        if script_changed:
+                            # Show prompt to relaunch
+                            self._show_relaunch_prompt()
+                    else:
+                        spinner.stop()
+                        output_log.write_line(f"✗ Command failed with exit code {process.returncode}\n")
+                        if not output_received:
+                            output_log.write_line("No output was produced. The command may have failed silently.\n")
+                
+                self.call_from_thread(update_ui)
+                
+            except FileNotFoundError:
+                def handle_error():
+                    spinner = self.query_one("#spinner", Spinner)
+                    spinner.stop()
+                    output_log.write_line("✗ Error: Command not found: git\n")
+                    output_log.write_line("Make sure git is installed and available in PATH.\n")
+                self.call_from_thread(handle_error)
+            except Exception as e:
+                def handle_exception():
+                    spinner = self.query_one("#spinner", Spinner)
+                    spinner.stop()
+                    output_log.write_line(f"✗ Error executing command: {e}\n")
+                    import traceback
+                    output_log.write_line(f"Traceback:\n{traceback.format_exc()}\n")
+                self.call_from_thread(handle_exception)
+        
+        thread = threading.Thread(target=run_in_thread, daemon=True)
+        thread.start()
+    
+    def _show_relaunch_prompt(self) -> None:
+        """Show the relaunch prompt modal."""
+        self.push_screen(RelaunchPrompt())
     
     def _run_streaming(self, cmd: List[str], output_log: OutputLog, shell: bool = False) -> None:
         """Run a command and stream output to the log."""
