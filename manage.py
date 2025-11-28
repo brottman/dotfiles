@@ -1,7 +1,7 @@
 #!/usr/bin/env nix-shell
 #! nix-shell -i python3 -p python3 python3Packages.rich python3Packages.textual python3Packages.pyyaml
 """
-manage.py - System Management Console v1.02
+manage.py - System Management Console v1.11
 A beautiful terminal user interface for managing NixOS, Docker, System, Git, Network, Services, and Storage.
 """
 
@@ -60,7 +60,7 @@ except ImportError:
 # Version Information
 # =============================================================================
 
-VERSION = "1.02"
+VERSION = "1.11"
 
 
 # =============================================================================
@@ -281,7 +281,8 @@ class CommandExecutor:
     
     def __init__(self, working_dir: Path, 
                  output_callback: Optional[Callable[[str], None]] = None,
-                 spinner_callback: Optional[Callable[[str], None]] = None) -> None:
+                 spinner_callback: Optional[Callable[[str], None]] = None,
+                 error_log_path: Optional[Path] = None) -> None:
         """
         Initialize CommandExecutor.
         
@@ -289,22 +290,190 @@ class CommandExecutor:
             working_dir: Working directory for command execution
             output_callback: Callback function for output lines (str -> None)
             spinner_callback: Callback function for spinner control ('start'|'stop'|'stop_success')
+            error_log_path: Optional path to log errors for debugging
         """
         self.working_dir = working_dir
         self.output_callback = output_callback or (lambda x: None)
         self.spinner_callback = spinner_callback or (lambda x: None)
+        self.error_log_path = error_log_path
     
-    def execute(self, cmd: List[str], shell: bool = False, timeout: Optional[int] = None) -> int:
+    def _log_error(self, cmd: List[str], error: Exception, context: str = "") -> None:
+        """Log error to file if error_log_path is set."""
+        if self.error_log_path:
+            try:
+                import datetime
+                timestamp = datetime.datetime.now().isoformat()
+                cmd_str = " ".join(cmd) if isinstance(cmd, list) else str(cmd)
+                log_entry = f"[{timestamp}] Error executing: {cmd_str}\n"
+                if context:
+                    log_entry += f"Context: {context}\n"
+                log_entry += f"Error: {error}\n"
+                import traceback
+                log_entry += f"Traceback:\n{traceback.format_exc()}\n"
+                log_entry += "-" * 60 + "\n\n"
+                
+                with open(self.error_log_path, "a") as f:
+                    f.write(log_entry)
+            except Exception:
+                # Silently fail if logging fails
+                pass
+    
+    def _get_actionable_error_message(self, cmd: List[str], error: Exception, 
+                                     exit_code: Optional[int] = None) -> str:
         """
-        Execute a command and stream output.
+        Generate actionable error messages based on error type.
+        
+        Args:
+            cmd: Command that failed
+            error: Exception that occurred
+            exit_code: Optional exit code from command
+            
+        Returns:
+            Formatted error message with suggestions
+        """
+        cmd_name = cmd[0] if isinstance(cmd, list) and len(cmd) > 0 else str(cmd)
+        cmd_str = " ".join(cmd) if isinstance(cmd, list) else str(cmd)
+        
+        if isinstance(error, FileNotFoundError):
+            return (
+                f"✗ Error: Command not found: {cmd_name}\n"
+                f"Make sure the command is installed and available in PATH.\n"
+                f"For NixOS, try: nix-shell -p {cmd_name}\n"
+            )
+        elif isinstance(error, subprocess.TimeoutExpired):
+            return (
+                f"✗ Command timed out: {cmd_str}\n"
+                f"The command took too long to execute.\n"
+                f"Try running it manually to see if it's stuck, or increase the timeout.\n"
+            )
+        elif exit_code is not None:
+            # Provide suggestions based on common exit codes
+            suggestions = {
+                1: "Command failed. Check the output above for details.",
+                2: "Command usage error. Verify command arguments.",
+                126: "Command cannot execute. Check file permissions.",
+                127: f"Command not found: {cmd_name}. Install it or check PATH.",
+                128: "Invalid exit code. Command may have been terminated by a signal.",
+            }
+            suggestion = suggestions.get(exit_code, f"Command failed with exit code {exit_code}.")
+            
+            return (
+                f"✗ Command failed with exit code {exit_code}\n"
+                f"{suggestion}\n"
+                f"Command: {cmd_str}\n"
+            )
+        else:
+            return (
+                f"✗ Error executing command: {error}\n"
+                f"Command: {cmd_str}\n"
+            )
+    
+    def execute(self, cmd: List[str], shell: bool = False, timeout: Optional[int] = None,
+                retries: int = 0, retry_delay: float = 1.0) -> int:
+        """
+        Execute a command and stream output with retry support.
         
         Args:
             cmd: Command to execute as list of strings
             shell: Whether to execute in shell
-            timeout: Optional timeout in seconds
+            timeout: Optional timeout in seconds (default: 300 for most commands)
+            retries: Number of retry attempts for transient failures (default: 0)
+            retry_delay: Delay in seconds between retries (default: 1.0)
             
         Returns:
             Exit code of the command
+        """
+        # Default timeout if not specified
+        if timeout is None:
+            timeout = 300  # 5 minutes default
+        
+        last_exception: Optional[Exception] = None
+        last_exit_code: Optional[int] = None
+        
+        for attempt in range(retries + 1):
+            try:
+                return self._execute_once(cmd, shell, timeout)
+            except subprocess.TimeoutExpired as e:
+                last_exception = e
+                if attempt < retries:
+                    self.output_callback(
+                        f"⚠ Timeout occurred, retrying ({attempt + 1}/{retries})...\n"
+                    )
+                    time.sleep(retry_delay)
+                    continue
+                else:
+                    # Final attempt failed
+                    error_msg = self._get_actionable_error_message(cmd, e)
+                    self.output_callback(error_msg)
+                    self.spinner_callback("stop")
+                    self._log_error(cmd, e, f"Timeout after {timeout}s, {retries} retries")
+                    return 124
+            except Exception as e:
+                last_exception = e
+                # Only retry on certain transient errors
+                if attempt < retries and self._is_transient_error(e):
+                    self.output_callback(
+                        f"⚠ Transient error, retrying ({attempt + 1}/{retries})...\n"
+                    )
+                    time.sleep(retry_delay)
+                    continue
+                else:
+                    # Non-retryable error or final attempt
+                    error_msg = self._get_actionable_error_message(cmd, e, last_exit_code)
+                    self.output_callback(error_msg)
+                    self.spinner_callback("stop")
+                    self._log_error(cmd, e, f"Attempt {attempt + 1}/{retries + 1}")
+                    if isinstance(e, FileNotFoundError):
+                        return 127
+                    return 1
+        
+        # Should not reach here, but handle it anyway
+        if last_exception:
+            error_msg = self._get_actionable_error_message(cmd, last_exception, last_exit_code)
+            self.output_callback(error_msg)
+            self.spinner_callback("stop")
+            self._log_error(cmd, last_exception, f"All {retries + 1} attempts failed")
+        return 1
+    
+    def _is_transient_error(self, error: Exception) -> bool:
+        """
+        Determine if an error is transient and worth retrying.
+        
+        Args:
+            error: Exception to check
+            
+        Returns:
+            True if error is likely transient
+        """
+        # Network-related errors that might be transient
+        transient_indicators = [
+            "Connection refused",
+            "Connection reset",
+            "Network is unreachable",
+            "Temporary failure",
+            "Name resolution failed",
+            "timeout",
+            "timed out",
+        ]
+        error_str = str(error).lower()
+        return any(indicator.lower() in error_str for indicator in transient_indicators)
+    
+    def _execute_once(self, cmd: List[str], shell: bool, timeout: int) -> int:
+        """
+        Execute a command once (internal method used by execute with retries).
+        
+        Args:
+            cmd: Command to execute
+            shell: Whether to execute in shell
+            timeout: Timeout in seconds
+            
+        Returns:
+            Exit code of the command
+            
+        Raises:
+            subprocess.TimeoutExpired: If command times out
+            FileNotFoundError: If command not found
+            Exception: For other errors
         """
         try:
             # Log the command being executed
@@ -343,9 +512,7 @@ class CommandExecutor:
             except subprocess.TimeoutExpired:
                 process.kill()
                 process.wait()
-                self.output_callback(f"\n✗ Command timed out after {timeout} seconds\n")
-                self.spinner_callback("stop")
-                return 124  # Standard timeout exit code
+                raise  # Re-raise to be handled by retry logic
             
             self.output_callback("\n" + "-" * 60 + "\n")
             
@@ -356,27 +523,25 @@ class CommandExecutor:
                     self.output_callback("Command completed (no output)\n")
             else:
                 self.spinner_callback("stop")
-                self.output_callback(f"✗ Command failed with exit code {process.returncode}\n")
+                error_msg = self._get_actionable_error_message(cmd, Exception("Command failed"), process.returncode)
+                self.output_callback(error_msg)
                 if not output_received:
                     self.output_callback("No output was produced. The command may have failed silently.\n")
             
             return process.returncode
-            
         except FileNotFoundError:
-            self.spinner_callback("stop")
-            cmd_name = cmd[0] if isinstance(cmd, list) and len(cmd) > 0 else str(cmd)
-            self.output_callback(f"✗ Error: Command not found: {cmd_name}\n")
-            self.output_callback("Make sure the command is installed and available in PATH.\n")
-            return 127  # Standard "command not found" exit code
+            # Re-raise FileNotFoundError - it's handled by execute() method
+            raise
+        except subprocess.TimeoutExpired:
+            # Re-raise timeout - it's handled by execute() method
+            raise
         except Exception as e:
-            self.spinner_callback("stop")
-            self.output_callback(f"✗ Error executing command: {e}\n")
-            import traceback
-            self.output_callback(f"Traceback:\n{traceback.format_exc()}\n")
-            return 1
+            # Re-raise other exceptions - they're handled by execute() method
+            raise
     
     def execute_async(self, cmd: List[str], shell: bool = False, 
-                     timeout: Optional[int] = None) -> threading.Thread:
+                     timeout: Optional[int] = None, retries: int = 0,
+                     retry_delay: float = 1.0) -> threading.Thread:
         """
         Execute a command asynchronously in a separate thread.
         
@@ -384,12 +549,14 @@ class CommandExecutor:
             cmd: Command to execute
             shell: Whether to execute in shell
             timeout: Optional timeout in seconds
+            retries: Number of retry attempts for transient failures
+            retry_delay: Delay in seconds between retries
             
         Returns:
             Thread object (already started)
         """
         def run_in_thread():
-            self.execute(cmd, shell=shell, timeout=timeout)
+            self.execute(cmd, shell=shell, timeout=timeout, retries=retries, retry_delay=retry_delay)
         
         thread = threading.Thread(target=run_in_thread, daemon=True)
         thread.start()
@@ -1588,11 +1755,13 @@ class ManageApp(App):
         # Initialize command registry
         self._command_registry = CommandRegistry()
         
-        # Initialize command executor
+        # Initialize command executor with error logging
+        error_log_path = self.flake_path / ".manage-errors.log"
         self._command_executor = CommandExecutor(
             working_dir=self.flake_path,
             output_callback=self._output_callback,
-            spinner_callback=self._spinner_callback
+            spinner_callback=self._spinner_callback,
+            error_log_path=error_log_path
         )
         
         self._register_commands()
@@ -1704,6 +1873,123 @@ class ManageApp(App):
         error_msg = f"✗ Error: Command not found: {cmd_name}\n"
         error_msg += "Make sure the command is installed and available in PATH.\n"
         self._handle_error(error_msg, thread_safe=thread_safe)
+    
+    def _check_command_available(self, cmd: str) -> bool:
+        """
+        Check if a command is available in PATH.
+        
+        Args:
+            cmd: Command name to check
+            
+        Returns:
+            True if command is available, False otherwise
+        """
+        return shutil.which(cmd) is not None
+    
+    def _get_required_commands(self, action_id: str) -> List[str]:
+        """
+        Get list of required commands for an action.
+        
+        Args:
+            action_id: Action identifier
+            
+        Returns:
+            List of required command names
+        """
+        # Map action IDs to their required commands
+        command_map: Dict[str, List[str]] = {
+            # Docker commands
+            "docker-ps": ["docker"],
+            "docker-ps-all": ["docker"],
+            "docker-images": ["docker"],
+            "docker-compose-up": ["docker"],
+            "docker-compose-down": ["docker"],
+            "docker-compose-logs": ["docker"],
+            "docker-prune-all": ["docker"],
+            "docker-stats": ["docker"],
+            "docker-networks": ["docker"],
+            "docker-volumes": ["docker"],
+            "docker-restart-all": ["docker"],
+            
+            # Network commands
+            "net-wifi": ["nmcli"],
+            "net-bandwidth": ["speedtest-cli"],
+            "net-trace": ["traceroute"],
+            
+            # Storage commands
+            "disk-io": ["iostat"],
+            "zfs-status": ["zpool"],
+            "zfs-list": ["zfs"],
+            "zfs-snapshots": ["zfs"],
+            "smart-status": ["smartctl"],
+            
+            # VM commands
+            "vm-create": ["virt-install"],
+            "vm-list-all": ["virsh"],
+            "vm-info": ["virsh"],
+            "vm-start": ["virsh"],
+            "vm-shutdown": ["virsh"],
+            "vm-reboot": ["virsh"],
+            "vm-force-stop": ["virsh"],
+            "vm-suspend": ["virsh"],
+            "vm-resume": ["virsh"],
+            "vm-console": ["virsh"],
+            "vm-stats": ["virsh"],
+            "vm-networks": ["virsh"],
+            "vm-pools": ["virsh"],
+            "vm-domains": ["virsh"],
+        }
+        
+        return command_map.get(action_id, [])
+    
+    def _check_dependencies(self, action_id: str, output_log: OutputLog) -> bool:
+        """
+        Check if all required dependencies for an action are available.
+        
+        Args:
+            action_id: Action identifier
+            output_log: Output log to write messages to
+            
+        Returns:
+            True if all dependencies are available, False otherwise
+        """
+        required_commands = self._get_required_commands(action_id)
+        
+        if not required_commands:
+            # No dependencies required
+            return True
+        
+        missing = [cmd for cmd in required_commands if not self._check_command_available(cmd)]
+        
+        if missing:
+            output_log.write_line(f"✗ Error: Missing required commands: {', '.join(missing)}\n")
+            output_log.write_line("\nTo install missing commands:\n")
+            
+            # Provide NixOS-specific installation suggestions
+            for cmd in missing:
+                # Map commands to their Nix package names
+                package_map: Dict[str, str] = {
+                    "docker": "docker",
+                    "nmcli": "networkmanager",
+                    "speedtest-cli": "speedtest-cli",
+                    "traceroute": "traceroute",
+                    "iostat": "sysstat",
+                    "zpool": "zfs",
+                    "zfs": "zfs",
+                    "smartctl": "smartmontools",
+                    "virt-install": "libvirt",
+                    "virsh": "libvirt",
+                }
+                
+                package = package_map.get(cmd, cmd)
+                output_log.write_line(f"  {cmd}: nix-shell -p {package}\n")
+                output_log.write_line(f"    Or add to configuration.nix: pkgs.{package}\n")
+            
+            output_log.write_line("\nAfter installing, try the action again.\n")
+            self._get_spinner().stop()
+            return False
+        
+        return True
     
     def _detect_current_machine(self) -> Optional[str]:
         """Detect the current machine from hostname."""
@@ -1871,13 +2157,9 @@ class ManageApp(App):
             ["virsh", "list", "--all"], log))
     
     def _vm_list_all_handler(self, machine: Optional[str], output_log: OutputLog) -> None:
-        """Handler for vm-list-all that checks for virsh availability."""
-        if not shutil.which("virsh"):
-            output_log.write_line("Error: virsh command not found.\n")
-            output_log.write_line("Make sure libvirt is installed: nix-shell -p libvirt\n")
-            self._get_spinner().stop()
-        else:
-            self._run_vm_list_command(output_log, all_vms=True)
+        """Handler for vm-list-all command."""
+        # Dependency check is handled by _check_dependencies before this is called
+        self._run_vm_list_command(output_log, all_vms=True)
     
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -2153,6 +2435,10 @@ class ManageApp(App):
     
     def _run_action(self, action_id: str, machine: Optional[str], output_log: OutputLog) -> None:
         """Run the actual command for an action using the command registry."""
+        # Check dependencies before executing
+        if not self._check_dependencies(action_id, output_log):
+            return
+        
         try:
             self._command_registry.execute(action_id, machine, output_log)
         except KeyError:
