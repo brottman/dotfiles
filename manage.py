@@ -482,6 +482,17 @@ class CommandExecutor:
             
             if shell:
                 cmd_str = " ".join(cmd) if isinstance(cmd, list) else str(cmd)
+                # Note: shell=True is used here for commands that require shell features
+                # (e.g., pipes, redirects). The cmd_str should already be sanitized
+                # by the caller, but we validate it doesn't contain dangerous patterns.
+                # In most cases, prefer using list arguments with shell=False.
+                if isinstance(cmd_str, str):
+                    # Basic validation: check for dangerous shell metacharacters
+                    dangerous_patterns = ['$(', '`', ';', '&&', '||']
+                    for pattern in dangerous_patterns:
+                        if pattern in cmd_str:
+                            raise ValueError(f"Command contains potentially dangerous pattern: {pattern}")
+                
                 process = subprocess.Popen(
                     cmd_str,
                     shell=True,
@@ -892,10 +903,11 @@ class VMCreateWizard(ModalScreen):
         Binding("down,j", "navigate_down", "Down"),
     ]
     
-    def __init__(self, flake_path: Path, output_log: OutputLog):
+    def __init__(self, flake_path: Path, output_log: OutputLog, app_instance: Optional['ManageApp'] = None):
         super().__init__()
         self.flake_path = flake_path
         self.output_log = output_log
+        self.app_instance = app_instance  # Reference to ManageApp for sanitization methods
         self.current_step = 0
         self.selected_index = 0
         self._custom_input_mode = None
@@ -1294,6 +1306,20 @@ class VMCreateWizard(ModalScreen):
     def _create_nixos_configs(self) -> None:
         """Generate NixOS configuration files for the VM."""
         vm_name = self.vm_config["name"]
+        
+        # Sanitize VM name before using in file paths
+        if self.app_instance:
+            try:
+                vm_name = self.app_instance._sanitize_vm_name(vm_name)
+            except ValueError as e:
+                self.call_from_thread(self.output_log.write_line, f"✗ Error: {e}\n")
+                return
+        else:
+            # Fallback validation if app_instance not available
+            if not re.match(r'^[a-zA-Z0-9_-]+$', vm_name) or '..' in vm_name or '/' in vm_name:
+                self.call_from_thread(self.output_log.write_line, f"✗ Error: Invalid VM name: {vm_name}\n")
+                return
+        
         vm_dir = self.flake_path / "machines" / vm_name
         vm_dir.mkdir(parents=True, exist_ok=True)
         
@@ -1375,6 +1401,14 @@ class VMCreateWizard(ModalScreen):
     
     def _update_flake_nix(self, vm_name: str) -> None:
         """Add VM configuration to flake.nix."""
+        # Sanitize VM name before using in file content
+        if self.app_instance:
+            try:
+                vm_name = self.app_instance._sanitize_vm_name(vm_name)
+            except ValueError as e:
+                self.call_from_thread(self.output_log.write_line, f"✗ Error: {e}\n")
+                return
+        
         flake_path = self.flake_path / "flake.nix"
         flake_content = flake_path.read_text()
         
@@ -1421,6 +1455,20 @@ class VMCreateWizard(ModalScreen):
             raise Exception("virt-install not found")
         
         vm_name = self.vm_config["name"]
+        
+        # Sanitize VM name before using in commands
+        if self.app_instance:
+            try:
+                vm_name = self.app_instance._sanitize_vm_name(vm_name)
+            except ValueError as e:
+                self.call_from_thread(self.output_log.write_line, f"✗ Error: {e}\n")
+                raise
+        else:
+            # Fallback validation if app_instance not available
+            if not re.match(r'^[a-zA-Z0-9_-]+$', vm_name) or '..' in vm_name or '/' in vm_name:
+                self.call_from_thread(self.output_log.write_line, f"✗ Error: Invalid VM name: {vm_name}\n")
+                raise ValueError(f"Invalid VM name: {vm_name}")
+        
         memory_mb = self.vm_config["memory_gb"] * 1024
         vcpus = self.vm_config["cpu_cores"]
         disk_gb = self.vm_config["disk_gb"]
@@ -1437,6 +1485,13 @@ class VMCreateWizard(ModalScreen):
             os_variant = "win10"
         elif os_type == "Other Linux":
             os_variant = "generic"
+        
+        # Sanitize OS variant (if app_instance available)
+        if self.app_instance:
+            os_variant = self.app_instance._sanitize_command_argument(os_variant)
+        else:
+            # Basic sanitization fallback
+            os_variant = re.sub(r'[^a-zA-Z0-9_-]', '_', os_variant)
         
         # Build virt-install command
         # Use --import to create VM without installation source (blank disk)
@@ -1929,6 +1984,80 @@ class ManageApp(App):
                     return
         
         output_log.write_line(f"Could not find action '{action_id}' to retry.\n")
+    
+    def _sanitize_machine_name(self, machine: str) -> str:
+        """
+        Sanitize machine name to prevent command injection.
+        Only allows alphanumeric characters, hyphens, and underscores.
+        
+        Args:
+            machine: Machine name to sanitize
+            
+        Returns:
+            Sanitized machine name
+            
+        Raises:
+            ValueError: If machine name contains invalid characters
+        """
+        # Only allow alphanumeric, hyphens, and underscores
+        if not re.match(r'^[a-zA-Z0-9_-]+$', machine):
+            raise ValueError(
+                f"Invalid machine name: '{machine}'. "
+                "Machine names can only contain letters, numbers, hyphens, and underscores."
+            )
+        return machine
+    
+    def _sanitize_vm_name(self, vm_name: str) -> str:
+        """
+        Sanitize VM name to prevent command injection and path traversal.
+        Only allows alphanumeric characters, hyphens, and underscores.
+        
+        Args:
+            vm_name: VM name to sanitize
+            
+        Returns:
+            Sanitized VM name
+            
+        Raises:
+            ValueError: If VM name contains invalid characters
+        """
+        # Only allow alphanumeric, hyphens, and underscores
+        if not re.match(r'^[a-zA-Z0-9_-]+$', vm_name):
+            raise ValueError(
+                f"Invalid VM name: '{vm_name}'. "
+                "VM names can only contain letters, numbers, hyphens, and underscores."
+            )
+        # Prevent path traversal attempts
+        if '..' in vm_name or '/' in vm_name or '\\' in vm_name:
+            raise ValueError(
+                f"Invalid VM name: '{vm_name}'. "
+                "VM names cannot contain path separators or '..'"
+            )
+        return vm_name
+    
+    def _sanitize_command_argument(self, arg: str) -> str:
+        """
+        Sanitize a command argument to prevent injection.
+        Removes or escapes dangerous characters.
+        
+        Args:
+            arg: Argument to sanitize
+            
+        Returns:
+            Sanitized argument
+        """
+        # Remove null bytes, newlines, and other control characters
+        arg = arg.replace('\x00', '')
+        arg = arg.replace('\n', '')
+        arg = arg.replace('\r', '')
+        # Remove shell metacharacters that could be dangerous
+        # Note: This is a safety measure, but we should use list arguments, not shell=True
+        dangerous_chars = [';', '&', '|', '`', '$', '(', ')', '<', '>']
+        for char in dangerous_chars:
+            if char in arg:
+                # Replace with underscore to prevent issues
+                arg = arg.replace(char, '_')
+        return arg
     
     def _check_command_available(self, cmd: str) -> bool:
         """
@@ -2555,8 +2684,18 @@ class ManageApp(App):
     
     def _run_action(self, action_id: str, machine: Optional[str], output_log: OutputLog) -> None:
         """Run the actual command for an action using the command registry."""
-        # Validate machine if required
+        # Sanitize and validate machine if required
         if machine is not None:
+            try:
+                # Sanitize machine name first
+                machine = self._sanitize_machine_name(machine)
+            except ValueError as e:
+                output_log.write_line(f"✗ Error: {e}\n")
+                self._reset_ui_state()
+                self._last_failed_action = (action_id, machine)
+                return
+            
+            # Then validate against flake
             if not self._validate_machine(machine):
                 output_log.write_line(f"✗ Error: Invalid machine name: {machine}\n")
                 output_log.write_line("\nValid machines in this flake:\n")
@@ -3635,7 +3774,7 @@ class ManageApp(App):
             return
         
         # Launch the VM creation wizard
-        self.push_screen(VMCreateWizard(self.flake_path, output_log))
+        self.push_screen(VMCreateWizard(self.flake_path, output_log, app_instance=self))
 
 
 # =============================================================================
