@@ -1104,8 +1104,8 @@ class RelaunchPrompt(ModalScreen):
     """
     
     BINDINGS = [
-        Binding("escape", "dismiss", "Dismiss"),
-        Binding("enter", "dismiss", "Dismiss"),
+        Binding("escape", "cancel", "Cancel"),
+        Binding("enter", "relaunch", "Relaunch"),
     ]
     
     def compose(self) -> ComposeResult:
@@ -1113,18 +1113,38 @@ class RelaunchPrompt(ModalScreen):
             yield Static("⚠️  Relaunch Required", classes="relaunch-title")
             yield Static(
                 "The manage script has been updated.\n\n"
-                "Please relaunch the manage script to use the new version.",
+                "Press Enter to relaunch the script automatically.",
                 classes="relaunch-message"
             )
             with Horizontal(classes="relaunch-buttons"):
-                yield Button("OK", id="btn-ok", variant="primary")
+                yield Button("Relaunch", id="btn-ok", variant="primary")
+    
+    def _relaunch_script(self) -> None:
+        """Relaunch the manage script."""
+        script_path = Path(__file__).resolve()
+        try:
+            # Try os.execv first (replaces current process)
+            os.execv(script_path, [str(script_path)] + sys.argv[1:])
+        except Exception:
+            # If execv fails, try subprocess
+            try:
+                subprocess.run([sys.executable, str(script_path)] + sys.argv[1:])
+                sys.exit(0)
+            except Exception:
+                # If both fail, just dismiss
+                self.dismiss(False)
     
     @on(Button.Pressed, "#btn-ok")
     def on_ok(self) -> None:
-        self.dismiss(True)
+        self._relaunch_script()
     
-    def action_dismiss(self) -> None:
-        self.dismiss(True)
+    def action_relaunch(self) -> None:
+        """Action handler for Enter key - relaunches the script."""
+        self._relaunch_script()
+    
+    def action_cancel(self) -> None:
+        """Action handler for Escape key - dismisses without relaunching."""
+        self.dismiss(False)
 
 
 # =============================================================================
