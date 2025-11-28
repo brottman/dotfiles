@@ -71,14 +71,31 @@
         };
       };
 
-      # Development shell for working with this flake
-      devShells.${system}.default = pkgs.mkShell {
-        buildInputs = with pkgs; [
-          nixfmt
-          nix-output-monitor
-          sops
-          age
-        ];
+      # Development shells
+      devShells.${system} = {
+        # Default shell for working with this flake
+        default = pkgs.mkShell {
+          buildInputs = with pkgs; [
+            nixfmt
+            nix-output-monitor
+            sops
+            age
+          ];
+        };
+
+        # Python development shell
+        python = pkgs.mkShell {
+          buildInputs = with pkgs; [
+            python3
+            python3Packages.pip
+            python3Packages.setuptools
+            python3Packages.wheel
+            python3Packages.virtualenv
+            python3Packages.black
+            python3Packages.pytest
+            python3Packages.ipython
+          ];
+        };
       };
     };
 }
