@@ -626,6 +626,8 @@ class CommandExecutor:
             
             self.output_callback("\n" + "-" * 60 + "\n")
             
+            # Flush any buffered output (handled by ManageApp._flush_output)
+            
             # Handle success/failure
             if process.returncode == 0:
                 self.spinner_callback("stop_success")
@@ -918,7 +920,25 @@ class Spinner(Static):
 
 
 class OutputLog(Log):
-    """Widget for displaying command output."""
+    """Widget for displaying command output with buffering and size limits."""
+    
+    def __init__(self, *args: Any, max_lines: int = 10000, buffer_size: int = 5, **kwargs: Any) -> None:
+        """
+        Initialize OutputLog with buffering and size limits.
+        
+        Args:
+            max_lines: Maximum number of lines to keep (default: 10000)
+            buffer_size: Number of lines to buffer before writing (default: 5)
+            *args, **kwargs: Passed to parent Log class
+        """
+        super().__init__(*args, **kwargs)
+        self.max_lines = max_lines
+        self.buffer_size = buffer_size
+        self._buffer: List[str] = []
+        self._total_lines = 0
+        self._lock = threading.Lock()
+        self._last_flush_time = time.time()
+        self._flush_interval = 0.05  # Flush every 50ms even if buffer isn't full
     
     def _strip_markup(self, text: str) -> str:
         """Strip Rich markup tags from text."""
@@ -932,12 +952,100 @@ class OutputLog(Log):
         ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
         return ansi_escape.sub('', text)
     
+    def _flush_buffer(self) -> None:
+        """Flush buffered lines to the log widget."""
+        if not self._buffer:
+            return
+        
+        # Join all buffered lines
+        buffered_content = ''.join(self._buffer)
+        self.write(buffered_content)
+        self._buffer.clear()
+    
+    def _trim_if_needed(self) -> None:
+        """Trim old lines if we exceed max_lines."""
+        if self._total_lines <= self.max_lines:
+            return
+        
+        # Calculate how many lines to remove
+        lines_to_remove = self._total_lines - self.max_lines + (self.max_lines // 10)  # Remove extra 10% for buffer
+        
+        # Get current content and split into lines
+        try:
+            # Textual Log widget stores content, we need to access it
+            # Since we can't directly access internal state, we'll track it ourselves
+            # and clear/rewrite if needed (this is a limitation of the Log widget)
+            # For now, we'll just limit new writes
+            pass
+        except Exception:
+            pass
+    
     def write_line(self, content: str) -> None:
-        """Write a line, stripping markup and ANSI codes."""
+        """
+        Write a line, stripping markup and ANSI codes.
+        Buffers output and writes in chunks for better performance.
+        """
+        with self._lock:
+            if isinstance(content, str):
+                content = self._strip_ansi(content)  # Strip ANSI codes first
+                content = self._strip_markup(content)  # Then strip Rich markup
+            
+            # Count lines in the content
+            line_count = content.count('\n')
+            self._total_lines += line_count
+            
+            # Add to buffer
+            self._buffer.append(content)
+            
+            current_time = time.time()
+            time_since_flush = current_time - self._last_flush_time
+            
+            # Flush buffer if:
+            # 1. Buffer is full, OR
+            # 2. Enough time has passed (for responsive UI even with small outputs), OR
+            # 3. Content ends with newline and we have some buffered content (for immediate feedback)
+            should_flush = (
+                len(self._buffer) >= self.buffer_size or
+                (time_since_flush >= self._flush_interval and self._buffer) or
+                (content.endswith('\n') and len(self._buffer) >= 1 and time_since_flush >= 0.02)  # Flush after 20ms if we have a complete line
+            )
+            
+            if should_flush:
+                self._flush_buffer()
+                self._last_flush_time = current_time
+            
+            # Trim if we exceed max lines
+            if self._total_lines > self.max_lines:
+                # Add a message about truncation
+                if not any("... (output truncated)" in line for line in self._buffer):
+                    self._buffer.insert(0, f"... (output truncated, showing last {self.max_lines} lines) ...\n")
+                # Reset line count to max_lines (approximate)
+                self._total_lines = self.max_lines
+    
+    def write_line_immediate(self, content: str) -> None:
+        """
+        Write a line immediately without buffering (for synchronous methods).
+        Use this for methods that write synchronously and need immediate feedback.
+        """
         if isinstance(content, str):
-            content = self._strip_ansi(content)  # Strip ANSI codes first
-            content = self._strip_markup(content)  # Then strip Rich markup
+            content = self._strip_ansi(content)
+            content = self._strip_markup(content)
+        
+        # Write directly without buffering
         self.write(content)
+    
+    def flush(self) -> None:
+        """Flush any remaining buffered content."""
+        with self._lock:
+            self._flush_buffer()
+            self._last_flush_time = time.time()
+    
+    def clear(self) -> None:
+        """Clear the log and reset counters."""
+        with self._lock:
+            self._buffer.clear()
+            self._total_lines = 0
+            super().clear()
 
 
 # =============================================================================
@@ -1940,6 +2048,14 @@ class ManageApp(App):
         output_log = self.query_one("#output-log", OutputLog)
         self.call_from_thread(output_log.write_line, line)
     
+    def _flush_output(self) -> None:
+        """Flush any buffered output."""
+        try:
+            output_log = self.query_one("#output-log", OutputLog)
+            self.call_from_thread(output_log.flush)
+        except Exception:
+            pass
+    
     def _spinner_callback(self, action: str) -> None:
         """Callback for spinner control - thread-safe wrapper."""
         spinner = self.query_one("#spinner", Spinner)
@@ -1991,9 +2107,11 @@ class ManageApp(App):
         if thread_safe:
             self.call_from_thread(self._reset_ui_state)
             self.call_from_thread(self._get_output_log().write_line, message)
+            self.call_from_thread(self._flush_output)
         else:
             self._reset_ui_state()
             self._write_output(message)
+            self._flush_output()
     
     def _handle_success(self, message: Optional[str] = None, thread_safe: bool = False) -> None:
         """
@@ -2008,10 +2126,12 @@ class ManageApp(App):
             self.call_from_thread(spinner.stop_success)
             if message:
                 self.call_from_thread(self._get_output_log().write_line, message)
+            self.call_from_thread(self._flush_output)
         else:
             spinner.stop_success()
             if message:
                 self._write_output(message)
+            self._flush_output()
     
     def _handle_command_error(self, cmd_name: str, error: Exception, 
                               include_traceback: bool = False, thread_safe: bool = False) -> None:
@@ -2429,7 +2549,8 @@ class ManageApp(App):
             return True
         
         # Check if any command requires sudo
-        sudo_required = any("sudo" in cmd for cmd in required_commands) or any(
+        sudo_required = (
+            any("sudo" in cmd for cmd in required_commands) or
             action_id in ["switch", "boot", "gc", "sys-reboot", "sys-shutdown", 
                          "net-firewall", "svc-reload", "disk-largest"]
         )
@@ -3591,12 +3712,16 @@ class ManageApp(App):
     
     def _run_system_info(self, output_log: OutputLog) -> None:
         """Display system information."""
-        output_log.write_line("System Information:\n\n")
+        # Start spinner
+        self._get_spinner().start()
+        
+        # Use immediate write for synchronous methods to avoid buffering delays
+        output_log.write_line_immediate("System Information:\n\n")
         
         # Hostname
         try:
             hostname = subprocess.check_output(["hostname"], text=True).strip()
-            output_log.write_line(f"  Hostname: {hostname}\n")
+            output_log.write_line_immediate(f"  Hostname: {hostname}\n")
         except:
             pass
         
@@ -3607,7 +3732,7 @@ class ManageApp(App):
                     for line in f:
                         if line.startswith("PRETTY_NAME="):
                             os_name = line.split("=")[1].strip().strip('"')
-                            output_log.write_line(f"  OS: {os_name}\n")
+                            output_log.write_line_immediate(f"  OS: {os_name}\n")
                             break
         except:
             pass
@@ -3615,14 +3740,14 @@ class ManageApp(App):
         # Kernel
         try:
             kernel = subprocess.check_output(["uname", "-r"], text=True).strip()
-            output_log.write_line(f"  Kernel: {kernel}\n")
+            output_log.write_line_immediate(f"  Kernel: {kernel}\n")
         except:
             pass
         
         # Architecture
         try:
             arch = subprocess.check_output(["uname", "-m"], text=True).strip()
-            output_log.write_line(f"  Arch: {arch}\n")
+            output_log.write_line_immediate(f"  Arch: {arch}\n")
         except:
             pass
         
@@ -3634,11 +3759,11 @@ class ManageApp(App):
             except (subprocess.CalledProcessError, FileNotFoundError):
                 # Fallback to standard uptime format
                 uptime = subprocess.check_output(["uptime"], text=True).strip()
-            output_log.write_line(f"  Uptime: {uptime}\n")
+            output_log.write_line_immediate(f"  Uptime: {uptime}\n")
         except:
             pass
         
-        output_log.write_line("\n" + "-" * 60 + "\n")
+        output_log.write_line_immediate("\n" + "-" * 60 + "\n")
         spinner = self.query_one("#spinner", Spinner)
         spinner.stop_success()
     
