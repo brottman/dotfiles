@@ -16,6 +16,7 @@ import fcntl
 import time
 import json
 import re
+import hashlib
 from pathlib import Path
 from typing import Optional, List, Tuple, Dict, Any
 from dataclasses import dataclass
@@ -2651,8 +2652,101 @@ class ManageApp(App):
 # Entry Point
 # =============================================================================
 
+def _get_file_hash(file_path: Path) -> str:
+    """Calculate SHA256 hash of a file."""
+    sha256_hash = hashlib.sha256()
+    try:
+        with open(file_path, "rb") as f:
+            for byte_block in iter(lambda: f.read(4096), b""):
+                sha256_hash.update(byte_block)
+        return sha256_hash.hexdigest()
+    except Exception:
+        return ""
+
+
+def _check_and_update_script() -> bool:
+    """
+    Perform git pull in background and check if manage.py has changed.
+    Returns True if the script should be relaunched, False otherwise.
+    """
+    script_path = Path(__file__).resolve()
+    script_dir = script_path.parent
+    
+    # Get current hash of manage.py
+    current_hash = _get_file_hash(script_path)
+    
+    # Perform git pull in background (non-blocking)
+    pull_complete = threading.Event()
+    pull_result = {"success": False}
+    
+    def git_pull_thread():
+        """Thread function to perform git pull."""
+        try:
+            pull_process = subprocess.run(
+                ["git", "pull"],
+                cwd=script_dir,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=30
+            )
+            pull_result["success"] = (pull_process.returncode == 0)
+        except subprocess.TimeoutExpired:
+            pull_result["success"] = False
+        except Exception:
+            pull_result["success"] = False
+        finally:
+            pull_complete.set()
+    
+    # Start git pull in background thread
+    pull_thread = threading.Thread(target=git_pull_thread, daemon=True)
+    pull_thread.start()
+    
+    # Wait a short time for git pull to complete (max 3 seconds)
+    # This allows quick updates without blocking too long
+    pull_complete.wait(timeout=3.0)
+    
+    # Check if manage.py has changed (only if git pull completed)
+    if pull_complete.is_set() and pull_result["success"]:
+        new_hash = _get_file_hash(script_path)
+        
+        if new_hash != current_hash and new_hash != "":
+            # Script has been updated
+            print("\n" + "=" * 60)
+            print("⚠️  UPDATE DETECTED")
+            print("=" * 60)
+            print(f"A new version of {script_path.name} has been downloaded.")
+            print("The script will be relaunched with the new version.")
+            print("\nPress Enter to continue...")
+            try:
+                input()
+            except (EOFError, KeyboardInterrupt):
+                # Handle cases where stdin is not available
+                pass
+            
+            # Relaunch the script
+            try:
+                os.execv(script_path, [str(script_path)] + sys.argv[1:])
+            except Exception:
+                # If execv fails, try subprocess
+                try:
+                    subprocess.run([sys.executable, str(script_path)] + sys.argv[1:])
+                    sys.exit(0)
+                except Exception:
+                    pass
+            
+            return True
+    
+    return False
+
+
 def main():
     """Main entry point."""
+    # Check for updates and relaunch if needed
+    if _check_and_update_script():
+        # Script was relaunched, this code won't execute
+        return
+    
     app = ManageApp()
     app.run()
 
