@@ -2129,11 +2129,10 @@ class ManageApp(App):
         Binding("8", "tab_8", "VMs", show=False),
         Binding("m", "cycle_machine", "Machine"),
         Binding("c", "clear_output", "Clear"),
-        Binding("r", "retry_action", "Retry", show=False),
+        Binding("h", "show_history", "History"),
+        Binding("r", "repeat_last_command", "Repeat Last"),
         Binding("/", "focus_search", "Search"),
         Binding("escape", "clear_search", "Clear Search", show=False),
-        Binding("h", "show_history", "History"),
-        Binding("ctrl+r", "repeat_last_command", "Repeat Last"),
     ]
     
     current_tab = reactive("system")
