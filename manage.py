@@ -69,17 +69,12 @@ ACTIONS = {
     "nixos": [
         ("switch", "Switch Configuration", "Apply NixOS configuration immediately using nixos-rebuild switch", False, True),
         ("boot", "Boot Configuration", "Build and set configuration for next boot without activating", False, True),
-        ("build", "Build Configuration", "Build the NixOS configuration without applying it", False, True),
-        ("dry-run", "Dry Run", "Show what changes would be made without applying them", False, True),
-        ("update", "Update Flake Inputs", "Update all flake inputs to their latest versions", False, False),
         ("update-nixpkgs", "Update Nixpkgs", "Update only the nixpkgs input", False, False),
         ("rebuild-all", "Rebuild All Machines", "Build configurations for all defined machines", False, False),
-        ("status", "System Status", "Show current and available NixOS generations", False, True),
-        ("health", "Health Check", "Run comprehensive system health diagnostics", False, False),
+        ("status", "List Generations", "Show current and available NixOS generations", False, True),
         ("gc", "Garbage Collection", "Remove old generations and free up disk space", False, False),
         ("list", "List Machines", "Show all available machine configurations", False, False),
         ("rollback", "Rollback", "Roll back to the previous system generation", True, True),
-        ("diff", "Show Diff", "Show differences between current and new configuration", False, True),
     ],
     "docker": [
         ("docker-ps", "List Containers", "Show all running Docker containers", False, False),
@@ -96,8 +91,8 @@ ACTIONS = {
         ("docker-restart-all", "Restart All", "Restart all running containers", True, False),
     ],
     "system": [
-        ("sys-info", "System Info", "Display detailed system information", False, False),
-        ("sys-uptime", "Uptime", "Show system uptime and load averages", False, False),
+        ("health", "Health Check", "Run comprehensive system health diagnostics", False, False),
+        ("sys-info", "System Info", "Display detailed system information including uptime", False, False),
         ("sys-memory", "Memory Usage", "Display memory and swap usage statistics", False, False),
         ("sys-cpu", "CPU Info", "Show CPU information and current usage", False, False),
         ("sys-processes", "Top Processes", "List processes sorted by resource usage", False, False),
@@ -106,7 +101,6 @@ ACTIONS = {
         ("sys-boot-logs", "Boot Logs", "View logs from the current boot", False, False),
         ("sys-reboot", "Reboot System", "Safely reboot the system", True, False),
         ("sys-shutdown", "Shutdown", "Safely shutdown the system", True, False),
-        ("sys-suspend", "Suspend", "Suspend the system to RAM", False, False),
     ],
     "git": [
         ("git-status", "Status", "Show the working tree status", False, False),
@@ -122,8 +116,7 @@ ACTIONS = {
         ("git-clean", "Clean", "Remove untracked files", True, False),
     ],
     "network": [
-        ("net-status", "Network Status", "Show network interface status", False, False),
-        ("net-ip", "IP Addresses", "Display all IP addresses", False, False),
+        ("net-ip", "Network Status", "Display all IP addresses", False, False),
         ("net-connections", "Active Connections", "Show all active network connections", False, False),
         ("net-ports", "Listening Ports", "Show all listening ports", False, False),
         ("net-ping", "Ping Test", "Test connectivity to common endpoints", False, False),
@@ -159,7 +152,6 @@ ACTIONS = {
     ],
     "vm": [
         ("vm-create", "Create VM", "Create a new virtual machine (interactive wizard)", False, False),
-        ("vm-list", "List VMs", "Show all virtual machines and their status", False, False),
         ("vm-list-all", "List All VMs", "Show all VMs including inactive ones", False, False),
         ("vm-info", "VM Info", "Show detailed information about a VM", False, False),
         ("vm-start", "Start VM", "Start a virtual machine", False, False),
@@ -555,6 +547,8 @@ class VMCreateWizard(ModalScreen):
             pass
     
     def action_navigate_up(self) -> None:
+        if self.current_step >= len(self.steps):
+            return
         step_id, question, options = self.steps[self.current_step]
         if options and self.selected_index > 0:
             self.selected_index -= 1
@@ -564,6 +558,8 @@ class VMCreateWizard(ModalScreen):
             pass
     
     def action_navigate_down(self) -> None:
+        if self.current_step >= len(self.steps):
+            return
         step_id, question, options = self.steps[self.current_step]
         if options and self.selected_index < len(options) - 1:
             self.selected_index += 1
@@ -574,6 +570,8 @@ class VMCreateWizard(ModalScreen):
     
     def action_select_option(self) -> None:
         """Handle Enter key - select option or move to next step."""
+        if self.current_step >= len(self.steps):
+            return
         step_id, question, options = self.steps[self.current_step]
         
         if options is None:
@@ -788,6 +786,17 @@ class VMCreateWizard(ModalScreen):
         # Validate configuration
         if not self.vm_config.get("name"):
             self.vm_config["name"] = f"vm-{int(time.time())}"
+        
+        # Update UI to show we're finishing
+        try:
+            question_widget = self.query_one("#wizard-question", Static)
+            options_widget = self.query_one("#wizard-options", Static)
+            hint_widget = self.query_one("#wizard-input-hint", Static)
+            question_widget.update("Creating VM...")
+            options_widget.update("Please wait while the VM is being created.\nThis may take a few moments.")
+            hint_widget.update("")
+        except:
+            pass
         
         # Create VM based on configuration
         self.output_log.write_line("\n" + "=" * 60 + "\n")
@@ -1189,10 +1198,17 @@ class ManageApp(App):
     def _detect_current_machine(self) -> Optional[str]:
         """Detect the current machine from hostname."""
         try:
-            hostname = subprocess.check_output(["hostname"], text=True).strip()
+            # Use timeout to avoid blocking if hostname command hangs
+            hostname = subprocess.check_output(
+                ["hostname"], 
+                text=True, 
+                timeout=1,
+                stderr=subprocess.DEVNULL
+            ).strip()
             if hostname in self.machines_list:
                 return hostname
-        except Exception:
+        except (subprocess.TimeoutExpired, subprocess.CalledProcessError, Exception):
+            # If hostname fails or times out, just use first machine
             pass
         return self.machines_list[0] if self.machines_list else None
     
@@ -1472,13 +1488,6 @@ class ManageApp(App):
             self._run_streaming(["sudo", "nixos-rebuild", "switch", "--flake", f".#{machine}"], output_log)
         elif action_id == "boot":
             self._run_streaming(["sudo", "nixos-rebuild", "boot", "--flake", f".#{machine}"], output_log)
-        elif action_id == "build":
-            self._run_streaming(["nix", "build", f".#nixosConfigurations.{machine}.config.system.build.toplevel",
-                                "--extra-experimental-features", "nix-command flakes"], output_log)
-        elif action_id == "dry-run":
-            self._run_streaming(["sudo", "nixos-rebuild", "dry-run", "--flake", f".#{machine}"], output_log)
-        elif action_id == "update":
-            self._run_streaming(["nix", "flake", "update", "--extra-experimental-features", "nix-command flakes"], output_log)
         elif action_id == "update-nixpkgs":
             self._run_streaming(["nix", "flake", "update", "nixpkgs", "--extra-experimental-features", "nix-command flakes"], output_log)
         elif action_id == "rebuild-all":
@@ -1493,10 +1502,6 @@ class ManageApp(App):
             self._list_machines(output_log)
         elif action_id == "rollback":
             self._run_streaming(["sudo", "nixos-rebuild", "switch", "--rollback"], output_log)
-        elif action_id == "diff":
-            self._run_streaming(["nix", "build", f".#nixosConfigurations.{machine}.config.system.build.toplevel",
-                                "--extra-experimental-features", "nix-command flakes", "-o", "result"], output_log)
-            self._run_streaming(["nvd", "diff", "/run/current-system", "result"], output_log)
         
         # Docker commands
         elif action_id == "docker-ps":
@@ -1527,8 +1532,6 @@ class ManageApp(App):
         # System commands
         elif action_id == "sys-info":
             self._run_system_info(output_log)
-        elif action_id == "sys-uptime":
-            self._run_streaming(["uptime"], output_log)
         elif action_id == "sys-memory":
             self._run_streaming(["free", "-h"], output_log)
         elif action_id == "sys-cpu":
@@ -1545,8 +1548,6 @@ class ManageApp(App):
             self._run_streaming(["sudo", "systemctl", "reboot"], output_log)
         elif action_id == "sys-shutdown":
             self._run_streaming(["sudo", "systemctl", "poweroff"], output_log)
-        elif action_id == "sys-suspend":
-            self._run_streaming(["systemctl", "suspend"], output_log)
         
         # Git commands
         elif action_id == "git-status":
@@ -1573,8 +1574,6 @@ class ManageApp(App):
             self._run_streaming(["git", "clean", "-fd"], output_log)
         
         # Network commands
-        elif action_id == "net-status":
-            self._run_streaming(["ip", "link", "show"], output_log)
         elif action_id == "net-ip":
             self._run_streaming(["ip", "addr", "show"], output_log)
         elif action_id == "net-connections":
@@ -1641,15 +1640,6 @@ class ManageApp(App):
         # Virtual Machine commands
         elif action_id == "vm-create":
             self._vm_create_helper(output_log)
-        elif action_id == "vm-list":
-            # Check if virsh is available first
-            if not shutil.which("virsh"):
-                output_log.write_line("Error: virsh command not found.\n")
-                output_log.write_line("Make sure libvirt is installed: nix-shell -p libvirt\n")
-                spinner = self.query_one("#spinner", Spinner)
-                spinner.stop()
-            else:
-                self._run_streaming(["virsh", "list"], output_log)
         elif action_id == "vm-list-all":
             # Check if virsh is available first
             if not shutil.which("virsh"):
@@ -1658,7 +1648,8 @@ class ManageApp(App):
                 spinner = self.query_one("#spinner", Spinner)
                 spinner.stop()
             else:
-                self._run_streaming(["virsh", "list", "--all"], output_log)
+                # Try system session first, then fall back to session
+                self._run_vm_list_command(output_log, all_vms=True)
         elif action_id == "vm-info":
             self._vm_info_helper(output_log)
         elif action_id == "vm-start":
@@ -1977,44 +1968,131 @@ class ManageApp(App):
         output_log.write_line("\n" + "-" * 60 + "\n")
     
     def _get_vm_list(self, all_vms: bool = False) -> List[str]:
-        """Get list of VMs. Returns empty list if virsh is not available."""
+        """Get list of VMs. Returns empty list if virsh is not available.
+        Tries system session first, then falls back to user session."""
         if not shutil.which("virsh"):
             return []
-        try:
-            cmd = ["virsh", "list", "--name"]
-            if all_vms:
-                cmd.append("--all")
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=5
-            )
-            if result.returncode == 0 and result.stdout.strip():
-                return [vm.strip() for vm in result.stdout.strip().split("\n") if vm.strip()]
-        except (FileNotFoundError, subprocess.TimeoutExpired, Exception):
-            pass
+        
+        # Try system session first (qemu:///system)
+        for uri in ["qemu:///system", "qemu:///session"]:
+            try:
+                cmd = ["virsh", "-c", uri, "list", "--name"]
+                if all_vms:
+                    cmd.append("--all")
+                result = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=5
+                )
+                if result.returncode == 0 and result.stdout.strip():
+                    vms = [vm.strip() for vm in result.stdout.strip().split("\n") if vm.strip()]
+                    if vms:
+                        return vms
+            except (FileNotFoundError, subprocess.TimeoutExpired, Exception):
+                continue
         return []
     
     def _get_running_vms(self) -> List[str]:
-        """Get list of running VMs."""
+        """Get list of running VMs. Tries system session first, then falls back to user session."""
         if not shutil.which("virsh"):
             return []
-        try:
-            result = subprocess.run(
-                ["virsh", "list", "--name"],
-                capture_output=True,
-                text=True,
-                timeout=5
-            )
-            if result.returncode == 0 and result.stdout.strip():
-                return [vm.strip() for vm in result.stdout.strip().split("\n") if vm.strip()]
-        except (FileNotFoundError, subprocess.TimeoutExpired, Exception):
-            pass
+        
+        # Try system session first (qemu:///system)
+        for uri in ["qemu:///system", "qemu:///session"]:
+            try:
+                result = subprocess.run(
+                    ["virsh", "-c", uri, "list", "--name"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5
+                )
+                if result.returncode == 0 and result.stdout.strip():
+                    vms = [vm.strip() for vm in result.stdout.strip().split("\n") if vm.strip()]
+                    if vms:
+                        return vms
+            except (FileNotFoundError, subprocess.TimeoutExpired, Exception):
+                continue
         return []
     
+    def _run_vm_list_command(self, output_log: OutputLog, all_vms: bool = False) -> None:
+        """Run virsh list command. For --all, shows VMs from both system and session with session column."""
+        found_any = False
+        
+        # For "List All VMs", combine VMs from both sessions with session info
+        if all_vms:
+            all_vm_data = []
+            
+            # Collect VMs from both sessions
+            for uri_name, uri in [("System", "qemu:///system"), ("Session", "qemu:///session")]:
+                try:
+                    cmd = ["virsh", "-c", uri, "list", "--all"]
+                    result = subprocess.run(
+                        cmd,
+                        capture_output=True,
+                        text=True,
+                        timeout=5
+                    )
+                    if result.returncode == 0 and result.stdout.strip():
+                        lines = result.stdout.strip().split("\n")
+                        # Skip header lines (first 2 lines are header and separator)
+                        for line in lines[2:]:
+                            line = line.strip()
+                            if line:
+                                # Parse the line: typically "Id   Name              State"
+                                # Split by whitespace, but preserve state which may have spaces
+                                parts = line.split()
+                                if len(parts) >= 3:
+                                    vm_id = parts[0]
+                                    vm_name = parts[1]
+                                    # State might be multiple words like "shut off"
+                                    vm_state = " ".join(parts[2:])
+                                    all_vm_data.append((vm_id, vm_name, vm_state, uri_name))
+                        found_any = True
+                except (FileNotFoundError, subprocess.TimeoutExpired, Exception):
+                    # Silently continue to next session
+                    continue
+            
+            if found_any:
+                # Write header with Session column
+                output_log.write_line(f"{'Id':<6} {'Name':<30} {'State':<20} {'Session':<10}\n")
+                output_log.write_line("-" * 70 + "\n")
+                # Write all VM lines
+                for vm_id, vm_name, vm_state, session in all_vm_data:
+                    output_log.write_line(f"{vm_id:<6} {vm_name:<30} {vm_state:<20} {session:<10}\n")
+            else:
+                output_log.write_line("No VMs found in system or session.\n")
+                output_log.write_line("Make sure libvirtd is running: sudo systemctl start libvirtd\n")
+        else:
+            # For regular "List VMs", try system first, then session
+            for uri in ["qemu:///system", "qemu:///session"]:
+                try:
+                    cmd = ["virsh", "-c", uri, "list"]
+                    result = subprocess.run(
+                        cmd,
+                        capture_output=True,
+                        text=True,
+                        timeout=5
+                    )
+                    if result.returncode == 0:
+                        output_log.write_line(result.stdout)
+                        if result.stderr:
+                            output_log.write_line(result.stderr)
+                        found_any = True
+                        break
+                except (FileNotFoundError, subprocess.TimeoutExpired, Exception):
+                    continue
+            
+            if not found_any:
+                output_log.write_line("Error: Could not connect to libvirt.\n")
+                output_log.write_line("Make sure libvirtd is running: sudo systemctl start libvirtd\n")
+                output_log.write_line("And that you have permission to access VMs.\n")
+        
+        spinner = self.query_one("#spinner", Spinner)
+        spinner.stop()
+    
     def _vm_info_helper(self, output_log: OutputLog) -> None:
-        """Show VM info - lists all VMs and their details."""
+        """Show VM info - lists all VMs and their details from both sessions."""
         if not shutil.which("virsh"):
             output_log.write_line("Error: virsh command not found.\n")
             output_log.write_line("Make sure libvirt is installed: nix-shell -p libvirt\n")
@@ -2023,14 +2101,31 @@ class ManageApp(App):
             return
         
         output_log.write_line("VM Information:\n\n")
-        vms = self._get_vm_list(all_vms=True)
-        if vms:
-            for vm in vms:
-                output_log.write_line(f"VM: {vm}\n")
+        
+        # Get VMs from both sessions with their session info
+        all_vms_with_session = []
+        for uri_name, uri in [("System", "qemu:///system"), ("Session", "qemu:///session")]:
+            try:
+                result = subprocess.run(
+                    ["virsh", "-c", uri, "list", "--all", "--name"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5
+                )
+                if result.returncode == 0 and result.stdout.strip():
+                    for vm in result.stdout.strip().split("\n"):
+                        if vm.strip():
+                            all_vms_with_session.append((vm.strip(), uri_name, uri))
+            except (FileNotFoundError, subprocess.TimeoutExpired, Exception):
+                continue
+        
+        if all_vms_with_session:
+            for vm_name, session_name, uri in all_vms_with_session:
+                output_log.write_line(f"VM: {vm_name} ({session_name} session)\n")
                 output_log.write_line("-" * 40 + "\n")
                 try:
                     result = subprocess.run(
-                        ["virsh", "dominfo", vm],
+                        ["virsh", "-c", uri, "dominfo", vm_name],
                         capture_output=True,
                         text=True,
                         timeout=5
@@ -2038,7 +2133,7 @@ class ManageApp(App):
                     if result.returncode == 0:
                         output_log.write_line(result.stdout)
                     else:
-                        output_log.write_line(f"Error getting info for {vm}: {result.stderr}\n")
+                        output_log.write_line(f"Error getting info for {vm_name}: {result.stderr}\n")
                 except Exception as e:
                     output_log.write_line(f"Error: {e}\n")
                 output_log.write_line("\n")
@@ -2050,17 +2145,131 @@ class ManageApp(App):
             spinner = self.query_one("#spinner", Spinner)
             spinner.stop()
     
+    def _find_vm_session(self, vm_name: str) -> Optional[str]:
+        """Find which session (system or session) a VM belongs to."""
+        for uri in ["qemu:///system", "qemu:///session"]:
+            try:
+                result = subprocess.run(
+                    ["virsh", "-c", uri, "dominfo", vm_name],
+                    capture_output=True,
+                    text=True,
+                    timeout=5
+                )
+                if result.returncode == 0:
+                    return uri
+            except (FileNotFoundError, subprocess.TimeoutExpired, Exception):
+                continue
+        return None
+    
+    def _get_running_vms_with_session(self) -> List[Tuple[str, str]]:
+        """Get list of running VMs with their session URI."""
+        running_vms = []
+        for uri in ["qemu:///system", "qemu:///session"]:
+            try:
+                result = subprocess.run(
+                    ["virsh", "-c", uri, "list", "--name"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5
+                )
+                if result.returncode == 0 and result.stdout.strip():
+                    for vm in result.stdout.strip().split("\n"):
+                        if vm.strip():
+                            running_vms.append((vm.strip(), uri))
+            except (FileNotFoundError, subprocess.TimeoutExpired, Exception):
+                continue
+        return running_vms
+    
     def _vm_start_helper(self, output_log: OutputLog) -> None:
         """Start VMs - attempts to start all stopped VMs."""
         output_log.write_line("Starting stopped VMs...\n\n")
-        all_vms = self._get_vm_list(all_vms=True)
-        running_vms = self._get_running_vms()
-        stopped_vms = [vm for vm in all_vms if vm not in running_vms]
+        
+        # Get all VMs with their session info
+        all_vms_with_session = []
+        for uri_name, uri in [("System", "qemu:///system"), ("Session", "qemu:///session")]:
+            try:
+                result = subprocess.run(
+                    ["virsh", "-c", uri, "list", "--all", "--name"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5
+                )
+                if result.returncode == 0 and result.stdout.strip():
+                    for vm in result.stdout.strip().split("\n"):
+                        if vm.strip():
+                            all_vms_with_session.append((vm.strip(), uri))
+            except (FileNotFoundError, subprocess.TimeoutExpired, Exception):
+                continue
+        
+        # Get running VMs
+        running_vms = set()
+        for uri in ["qemu:///system", "qemu:///session"]:
+            try:
+                result = subprocess.run(
+                    ["virsh", "-c", uri, "list", "--name"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5
+                )
+                if result.returncode == 0 and result.stdout.strip():
+                    for vm in result.stdout.strip().split("\n"):
+                        if vm.strip():
+                            running_vms.add(vm.strip())
+            except (FileNotFoundError, subprocess.TimeoutExpired, Exception):
+                continue
+        
+        # Find stopped VMs
+        stopped_vms = [(vm, uri) for vm, uri in all_vms_with_session if vm not in running_vms]
         
         if stopped_vms:
-            for vm in stopped_vms:
+            for vm, uri in stopped_vms:
                 output_log.write_line(f"Starting {vm}...\n")
-                self._run_streaming(["virsh", "start", vm], output_log)
+                result = subprocess.run(
+                    ["virsh", "-c", uri, "start", vm],
+                    capture_output=True,
+                    text=True,
+                    timeout=30
+                )
+                if result.returncode == 0:
+                    output_log.write_line(f"✓ {vm} started successfully\n")
+                else:
+                    error_msg = result.stderr.strip() if result.stderr else result.stdout.strip()
+                    output_log.write_line(f"✗ Failed to start {vm}\n")
+                    output_log.write_line(f"  Error: {error_msg}\n")
+                    # Check if it's a network issue and try to fix it
+                    if "network" in error_msg.lower() and "not active" in error_msg.lower():
+                        # Extract network name if possible
+                        network_name = "default"
+                        if "'" in error_msg:
+                            # Try to extract network name from error message like "network 'default' is not active"
+                            parts = error_msg.split("'")
+                            if len(parts) >= 2:
+                                network_name = parts[1]
+                        
+                        output_log.write_line(f"\n  Attempting to start network '{network_name}'...\n")
+                        net_result = subprocess.run(
+                            ["virsh", "-c", uri, "net-start", network_name],
+                            capture_output=True,
+                            text=True,
+                            timeout=10
+                        )
+                        if net_result.returncode == 0:
+                            output_log.write_line(f"  ✓ Network '{network_name}' started. Retrying VM start...\n")
+                            # Retry starting the VM
+                            retry_result = subprocess.run(
+                                ["virsh", "-c", uri, "start", vm],
+                                capture_output=True,
+                                text=True,
+                                timeout=30
+                            )
+                            if retry_result.returncode == 0:
+                                output_log.write_line(f"  ✓ {vm} started successfully after network activation\n")
+                            else:
+                                output_log.write_line(f"  ✗ Still failed: {retry_result.stderr.strip()}\n")
+                        else:
+                            output_log.write_line(f"  ✗ Could not start network: {net_result.stderr.strip()}\n")
+                            output_log.write_line(f"\n  Manual fix: virsh -c {uri} net-start {network_name}\n")
+                            output_log.write_line(f"  Or enable autostart: virsh -c {uri} net-autostart {network_name}\n")
                 output_log.write_line("\n")
         else:
             output_log.write_line("No stopped VMs found.\n")
@@ -2070,12 +2279,12 @@ class ManageApp(App):
     def _vm_shutdown_helper(self, output_log: OutputLog) -> None:
         """Shutdown VMs - gracefully shuts down all running VMs."""
         output_log.write_line("Shutting down running VMs...\n\n")
-        running_vms = self._get_running_vms()
+        running_vms = self._get_running_vms_with_session()
         
         if running_vms:
-            for vm in running_vms:
+            for vm, uri in running_vms:
                 output_log.write_line(f"Shutting down {vm}...\n")
-                self._run_streaming(["virsh", "shutdown", vm], output_log)
+                self._run_streaming(["virsh", "-c", uri, "shutdown", vm], output_log)
                 output_log.write_line("\n")
         else:
             output_log.write_line("No running VMs found.\n")
@@ -2085,12 +2294,12 @@ class ManageApp(App):
     def _vm_reboot_helper(self, output_log: OutputLog) -> None:
         """Reboot VMs - reboots all running VMs."""
         output_log.write_line("Rebooting running VMs...\n\n")
-        running_vms = self._get_running_vms()
+        running_vms = self._get_running_vms_with_session()
         
         if running_vms:
-            for vm in running_vms:
+            for vm, uri in running_vms:
                 output_log.write_line(f"Rebooting {vm}...\n")
-                self._run_streaming(["virsh", "reboot", vm], output_log)
+                self._run_streaming(["virsh", "-c", uri, "reboot", vm], output_log)
                 output_log.write_line("\n")
         else:
             output_log.write_line("No running VMs found.\n")
@@ -2100,13 +2309,13 @@ class ManageApp(App):
     def _vm_force_stop_helper(self, output_log: OutputLog) -> None:
         """Force stop VMs - force stops all running VMs (dangerous)."""
         output_log.write_line("⚠️  WARNING: Force stop is dangerous and may cause data loss!\n\n")
-        running_vms = self._get_running_vms()
+        running_vms = self._get_running_vms_with_session()
         
         if running_vms:
             output_log.write_line("Force stopping running VMs...\n\n")
-            for vm in running_vms:
+            for vm, uri in running_vms:
                 output_log.write_line(f"Force stopping {vm}...\n")
-                self._run_streaming(["virsh", "destroy", vm], output_log)
+                self._run_streaming(["virsh", "-c", uri, "destroy", vm], output_log)
                 output_log.write_line("\n")
         else:
             output_log.write_line("No running VMs found.\n")
@@ -2116,12 +2325,12 @@ class ManageApp(App):
     def _vm_suspend_helper(self, output_log: OutputLog) -> None:
         """Suspend VMs - suspends all running VMs."""
         output_log.write_line("Suspending running VMs...\n\n")
-        running_vms = self._get_running_vms()
+        running_vms = self._get_running_vms_with_session()
         
         if running_vms:
-            for vm in running_vms:
+            for vm, uri in running_vms:
                 output_log.write_line(f"Suspending {vm}...\n")
-                self._run_streaming(["virsh", "suspend", vm], output_log)
+                self._run_streaming(["virsh", "-c", uri, "suspend", vm], output_log)
                 output_log.write_line("\n")
         else:
             output_log.write_line("No running VMs found.\n")
@@ -2131,37 +2340,69 @@ class ManageApp(App):
     def _vm_resume_helper(self, output_log: OutputLog) -> None:
         """Resume VMs - resumes all suspended VMs."""
         output_log.write_line("Resuming suspended VMs...\n\n")
-        all_vms = self._get_vm_list(all_vms=True)
-        running_vms = self._get_running_vms()
+        
+        # Get all VMs with their session info
+        all_vms_with_session = []
+        for uri in ["qemu:///system", "qemu:///session"]:
+            try:
+                result = subprocess.run(
+                    ["virsh", "-c", uri, "list", "--all", "--name"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5
+                )
+                if result.returncode == 0 and result.stdout.strip():
+                    for vm in result.stdout.strip().split("\n"):
+                        if vm.strip():
+                            all_vms_with_session.append((vm.strip(), uri))
+            except (FileNotFoundError, subprocess.TimeoutExpired, Exception):
+                continue
+        
+        # Get running VMs
+        running_vms = set()
+        for uri in ["qemu:///system", "qemu:///session"]:
+            try:
+                result = subprocess.run(
+                    ["virsh", "-c", uri, "list", "--name"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5
+                )
+                if result.returncode == 0 and result.stdout.strip():
+                    for vm in result.stdout.strip().split("\n"):
+                        if vm.strip():
+                            running_vms.add(vm.strip())
+            except (FileNotFoundError, subprocess.TimeoutExpired, Exception):
+                continue
         
         # Try to detect suspended VMs by checking their state
         suspended_vms = []
-        for vm in all_vms:
+        for vm, uri in all_vms_with_session:
             if vm not in running_vms:
                 try:
                     result = subprocess.run(
-                        ["virsh", "dominfo", vm],
+                        ["virsh", "-c", uri, "dominfo", vm],
                         capture_output=True,
                         text=True,
                         timeout=2
                     )
                     if result.returncode == 0:
                         if "paused" in result.stdout.lower() or "suspended" in result.stdout.lower():
-                            suspended_vms.append(vm)
+                            suspended_vms.append((vm, uri))
                 except:
                     pass
         
         if suspended_vms:
-            for vm in suspended_vms:
+            for vm, uri in suspended_vms:
                 output_log.write_line(f"Resuming {vm}...\n")
-                self._run_streaming(["virsh", "resume", vm], output_log)
+                self._run_streaming(["virsh", "-c", uri, "resume", vm], output_log)
                 output_log.write_line("\n")
         else:
             output_log.write_line("No suspended VMs found.\n")
-            stopped_vms = [vm for vm in all_vms if vm not in running_vms]
+            stopped_vms = [(vm, uri) for vm, uri in all_vms_with_session if vm not in running_vms]
             if stopped_vms:
                 output_log.write_line("Stopped VMs (use 'vm-start' to start them):\n")
-                for vm in stopped_vms:
+                for vm, uri in stopped_vms:
                     output_log.write_line(f"  - {vm}\n")
             spinner = self.query_one("#spinner", Spinner)
             spinner.stop()

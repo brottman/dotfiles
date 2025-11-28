@@ -156,6 +156,18 @@
   systemd.services.libvirt-guests = {
     enable = false;
   };
+  # Autostart libvirtd default network on boot
+  systemd.services.libvirt-default-network = {
+    description = "Autostart libvirtd default network";
+    after = [ "libvirtd.service" ];
+    requires = [ "libvirtd.service" ];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      ExecStart = "${pkgs.libvirt}/bin/virsh net-autostart default";
+    };
+    wantedBy = [ "multi-user.target" ];
+  };
   virtualisation.spiceUSBRedirection.enable = true;
   programs.virt-manager.enable = true;
 
