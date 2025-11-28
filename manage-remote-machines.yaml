@@ -1,0 +1,28 @@
+# Remote Machine Configuration for manage.py
+# This file defines remote machines that can be managed via SSH
+
+machines:
+
+  - name: "superheavy"
+    host: "superheavy"              # Hostname or IP address
+    use_agent: true                 # Use SSH agent if available (default: true)
+    timeout: 10                     # Connection timeout in seconds (default: 10)
+    enabled: true                   # Set to false to disable without deleting
+    # Note: user, port, and key_file are omitted to rely on SSH config
+
+  - name: "backup"
+    host: "backup"                  # Hostname or IP address
+    use_agent: true                 # Use SSH agent if available (default: true)
+    timeout: 10                     # Connection timeout in seconds (default: 10)
+    enabled: true                   # Set to false to disable without deleting
+    # Note: user, port, and key_file are omitted to rely on SSH config
+
+  - name: "docker"
+    host: "docker"                  # Hostname or IP address
+    use_agent: true                 # Use SSH agent if available (default: true)
+    timeout: 10                     # Connection timeout in seconds (default: 10)
+    enabled: true                   # Set to false to disable without deleting
+    # Note: user, port, and key_file are omitted to rely on SSH config
+
+# machines: []
+

@@ -764,8 +764,8 @@ class RemoteConnectionManager:
             config_path: Path to remote-machines.yaml config file
         """
         if config_path is None:
-            # Default to .manage-remote-machines.yaml in current directory
-            config_path = Path.cwd() / ".manage-remote-machines.yaml"
+            # Default to manage-remote-machines.yaml in current directory
+            config_path = Path.cwd() / "manage-remote-machines.yaml"
         self.config_path = config_path
         self._remote_machines: Dict[str, RemoteMachine] = {}
         self._load_remote_machines()
@@ -830,6 +830,7 @@ class RemoteConnectionManager:
     def test_connection(self, machine: RemoteMachine) -> Tuple[bool, str]:
         """
         Test SSH connection to a remote machine.
+        Uses minimal SSH options to rely on user's SSH config when possible.
         
         Args:
             machine: RemoteMachine to test
@@ -838,42 +839,47 @@ class RemoteConnectionManager:
             Tuple of (success: bool, message: str)
         """
         try:
-            # Build SSH command
-            ssh_cmd = ["ssh", "-o", "ConnectTimeout=5", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no"]
+            # Build SSH command - minimal options, let SSH config handle the rest
+            # Use shorter timeout for faster feedback
+            ssh_cmd = ["ssh", "-o", "ConnectTimeout=3", "-o", "StrictHostKeyChecking=no"]
             
+            # Only add port if non-standard
             if machine.port != 22:
                 ssh_cmd.extend(["-p", str(machine.port)])
             
-            if machine.key_file:
+            # Only specify key file if explicitly provided AND not using agent
+            # (If use_agent is True, let SSH agent/config handle authentication)
+            if machine.key_file and not machine.use_agent:
                 ssh_cmd.extend(["-i", machine.key_file])
             
-            if not machine.use_agent:
-                ssh_cmd.append("-o")
-                ssh_cmd.append("IdentitiesOnly=yes")
-            
-            # Build host string
+            # Build host string - use just hostname (let SSH config handle user)
             host_str = machine.host
+            # Only add user if explicitly specified (otherwise let SSH config handle it)
             if machine.user:
                 host_str = f"{machine.user}@{machine.host}"
             
             ssh_cmd.append(host_str)
             ssh_cmd.append("echo 'Connection successful'")
             
-            # Test connection
+            # Test connection with shorter timeout
             result = subprocess.run(
                 ssh_cmd,
                 capture_output=True,
                 text=True,
-                timeout=machine.timeout
+                timeout=min(machine.timeout, 5)  # Cap at 5 seconds for faster feedback
             )
             
             if result.returncode == 0:
                 return True, "Connected"
             else:
-                error_msg = result.stderr.strip() or "Connection failed"
+                # Get error message from stderr, or stdout if stderr is empty
+                error_msg = result.stderr.strip() or result.stdout.strip() or "Connection failed"
+                # Truncate long error messages
+                if len(error_msg) > 100:
+                    error_msg = error_msg[:97] + "..."
                 return False, error_msg
         except subprocess.TimeoutExpired:
-            return False, "Connection timeout"
+            return False, "Timeout"
         except Exception as e:
             return False, f"Error: {str(e)}"
     
@@ -1548,6 +1554,14 @@ class HelpScreen(ModalScreen):
 class MachineSelectionScreen(ModalScreen):
     """Modal screen for selecting a machine (local or remote)."""
     
+    class StatusUpdate(Message):
+        """Message sent when connection status updates."""
+        def __init__(self, machine: str, connected: bool, msg: str) -> None:
+            self.machine = machine
+            self.connected = connected
+            self.msg = msg
+            super().__init__()
+    
     BINDINGS = [
         Binding("escape,q", "dismiss", "Cancel", priority=True),
         Binding("enter", "confirm", "Select", priority=True),
@@ -1643,11 +1657,23 @@ class MachineSelectionScreen(ModalScreen):
                 if self.remote_manager.is_remote_machine(machine):
                     remote_machine = self.remote_manager.get_remote_machine(machine)
                     if remote_machine:
-                        success, msg = self.remote_manager.test_connection(remote_machine)
-                        self._connection_status[machine] = (success, msg)
-                        # Update UI
-                        self.call_from_thread(self._update_machine_status, machine, success, msg)
+                        try:
+                            # Test connection with explicit timeout handling
+                            success, msg = self.remote_manager.test_connection(remote_machine)
+                            self._connection_status[machine] = (success, msg)
+                            # Post message to update UI (more reliable than call_from_thread)
+                            self.post_message(self.StatusUpdate(machine, success, msg))
+                        except subprocess.TimeoutExpired:
+                            error_msg = "Connection timeout"
+                            self._connection_status[machine] = (False, error_msg)
+                            self.post_message(self.StatusUpdate(machine, False, error_msg))
+                        except Exception as e:
+                            # Handle any exceptions during connection test
+                            error_msg = f"Error: {str(e)}"
+                            self._connection_status[machine] = (False, error_msg)
+                            self.post_message(self.StatusUpdate(machine, False, error_msg))
         
+        # Start the test thread
         threading.Thread(target=test_connections, daemon=True).start()
         self._highlight_selected()
         
@@ -1655,6 +1681,11 @@ class MachineSelectionScreen(ModalScreen):
         self.can_focus = True
         # Set focus to the screen so it can receive keyboard input
         self.call_after_refresh(lambda: self.set_focus(None))
+    
+    @on(StatusUpdate)
+    def on_status_update(self, event: StatusUpdate) -> None:
+        """Handle connection status update message."""
+        self._update_machine_status(event.machine, event.connected, event.msg)
     
     def _update_machine_status(self, machine: str, connected: bool, msg: str) -> None:
         """Update connection status for a machine."""
@@ -1664,9 +1695,16 @@ class MachineSelectionScreen(ModalScreen):
             is_remote = self.remote_manager.is_remote_machine(machine)
             status_text = f"[green]✓[/green] {msg}" if connected else f"[red]✗[/red] {msg}"
             machine_display = f"{machine} [yellow](remote)[/yellow]" if is_remote else machine
-            machine_widget.update(f"{machine_display} {status_text}")
-        except Exception:
-            pass
+            new_text = f"{machine_display} {status_text}"
+            machine_widget.update(new_text)
+            # Force a refresh of the widget
+            machine_widget.refresh()
+        except Exception as e:
+            # Log the error for debugging (but don't crash)
+            import sys
+            import traceback
+            print(f"Error updating machine status for {machine}: {e}", file=sys.stderr)
+            print(traceback.format_exc(), file=sys.stderr)
     
     def _highlight_selected(self) -> None:
         """Highlight the selected machine."""
@@ -2726,13 +2764,19 @@ class ManageApp(App):
         
         # Initialize remote connection manager (needed before loading machines list)
         # Use flake_path for config file location
-        remote_config_path = self.flake_path / ".manage-remote-machines.yaml"
+        remote_config_path = self.flake_path / "manage-remote-machines.yaml"
         self._remote_manager = RemoteConnectionManager(config_path=remote_config_path)
         
         # Load machines list (with caching) - includes both local and remote machines
         local_machines = self._get_machines_list_cached()
         remote_machines = [m.name for m in self._remote_manager.get_remote_machines()]
-        self.machines_list: List[str] = local_machines + remote_machines
+        # Deduplicate: if a machine exists in both lists, prefer remote (explicitly configured)
+        # Create a set of remote machine names for fast lookup
+        remote_set = set(remote_machines)
+        # Filter out local machines that are also remote machines
+        local_only = [m for m in local_machines if m not in remote_set]
+        # Combine: local-only machines first, then remote machines
+        self.machines_list: List[str] = local_only + remote_machines
         self.current_machine: Optional[str] = self._detect_current_machine()
         self.machine_index: int = 0
         if self.current_machine in self.machines_list:
@@ -3200,40 +3244,6 @@ class ManageApp(App):
         }
         
         return command_map.get(action_id, [])
-    
-    def _get_machines_list_cached(self) -> List[str]:
-        """
-        Get the list of machines from the flake, using cache if available.
-        
-        Returns:
-            List of machine names
-        """
-        cache_key = "machines_list"
-        cached = self._cache_manager.get(cache_key)
-        if cached is not None:
-            return cached
-        
-        # Try to get machines from flake
-        try:
-            result = subprocess.run(
-                ["nix", "flake", "show", "--json"],
-                cwd=self.flake_path,
-                capture_output=True,
-                text=True,
-                timeout=10
-            )
-            if result.returncode == 0:
-                data = json.loads(result.stdout)
-                machines = list(data.get("nixosConfigurations", {}).keys())
-                if machines:
-                    # Cache for 5 minutes
-                    self._cache_manager.set(cache_key, machines, ttl_seconds=300)
-                    return machines
-        except (subprocess.TimeoutExpired, subprocess.CalledProcessError, json.JSONDecodeError, Exception):
-            pass
-        
-        # Fallback to default list
-        return MACHINES
     
     def _get_machines_list_cached(self) -> List[str]:
         """
@@ -3829,6 +3839,11 @@ class ManageApp(App):
                 if machine in self.machines_list:
                     self.machine_index = self.machines_list.index(machine)
                     self.current_machine = machine
+                    # Update remote machine context
+                    if self._remote_manager.is_remote_machine(machine):
+                        self._current_remote_machine = self._remote_manager.get_remote_machine(machine)
+                    else:
+                        self._current_remote_machine = None
                     self._update_machine_display()
         
         # Create and show machine selection screen
@@ -4292,7 +4307,7 @@ class ManageApp(App):
         """Show the relaunch prompt modal."""
         self.push_screen(RelaunchPrompt())
     
-    def _run_streaming(self, cmd: List[str], output_log: OutputLog, shell: bool = False, 
+    def _run_streaming(self, cmd: List[str], output_log: OutputLog, shell: bool = False,
                       remote_machine: Optional[RemoteMachine] = None) -> None:
         """
         Run a command and stream output to the log using CommandExecutor.
@@ -4301,10 +4316,15 @@ class ManageApp(App):
             cmd: Command to execute
             output_log: Output log widget
             shell: Whether to execute in shell
-            remote_machine: Optional remote machine to execute command on
+            remote_machine: Optional remote machine to execute command on.
+                           If None, will use self._current_remote_machine if available.
         """
         # Start spinner
         self._get_spinner().start()
+        
+        # Use provided remote_machine, or fall back to current remote machine context
+        if remote_machine is None:
+            remote_machine = self._current_remote_machine
         
         # If remote machine, wrap command with SSH
         if remote_machine:
@@ -4320,12 +4340,22 @@ class ManageApp(App):
         def run_in_thread():
             try:
                 cmd = ["docker", "ps"] + (["-a"] if all_containers else [])
-                result = subprocess.run(
-                    cmd,
-                    capture_output=True,
-                    text=True,
-                    timeout=10
-                )
+                # If remote machine, wrap command with SSH
+                if self._current_remote_machine:
+                    ssh_cmd = self._remote_manager.build_ssh_command(self._current_remote_machine, cmd)
+                    result = subprocess.run(
+                        ssh_cmd,
+                        capture_output=True,
+                        text=True,
+                        timeout=10
+                    )
+                else:
+                    result = subprocess.run(
+                        cmd,
+                        capture_output=True,
+                        text=True,
+                        timeout=10
+                    )
                 
                 if result.returncode != 0:
                     self.call_from_thread(output_log.write_line, f"✗ Error: {result.stderr}\n")
@@ -4373,12 +4403,23 @@ class ManageApp(App):
         """Run docker images and format output as a Rich table."""
         def run_in_thread():
             try:
-                result = subprocess.run(
-                    ["docker", "images"],
-                    capture_output=True,
-                    text=True,
-                    timeout=10
-                )
+                cmd = ["docker", "images"]
+                # If remote machine, wrap command with SSH
+                if self._current_remote_machine:
+                    ssh_cmd = self._remote_manager.build_ssh_command(self._current_remote_machine, cmd)
+                    result = subprocess.run(
+                        ssh_cmd,
+                        capture_output=True,
+                        text=True,
+                        timeout=10
+                    )
+                else:
+                    result = subprocess.run(
+                        cmd,
+                        capture_output=True,
+                        text=True,
+                        timeout=10
+                    )
                 
                 if result.returncode != 0:
                     self.call_from_thread(output_log.write_line, f"✗ Error: {result.stderr}\n")
@@ -4477,12 +4518,23 @@ class ManageApp(App):
                 current_step += 1
                 self.call_from_thread(update_progress, current_step, "Getting container list", 0.0, "Querying Docker...")
                 self.call_from_thread(output_log.write_line, "Getting list of running containers...\n")
-                ps_result = subprocess.run(
-                    ["docker", "ps", "-q"],
-                    capture_output=True,
-                    text=True,
-                    timeout=10
-                )
+                cmd = ["docker", "ps", "-q"]
+                # If remote machine, wrap command with SSH
+                if self._current_remote_machine:
+                    ssh_cmd = self._remote_manager.build_ssh_command(self._current_remote_machine, cmd)
+                    ps_result = subprocess.run(
+                        ssh_cmd,
+                        capture_output=True,
+                        text=True,
+                        timeout=10
+                    )
+                else:
+                    ps_result = subprocess.run(
+                        cmd,
+                        capture_output=True,
+                        text=True,
+                        timeout=10
+                    )
                 
                 if ps_result.returncode != 0:
                     self.call_from_thread(output_log.write_line, f"✗ Error getting container list: {ps_result.stderr}\n")
@@ -4514,12 +4566,23 @@ class ManageApp(App):
                         continue
                     
                     self.call_from_thread(output_log.write_line, f"Restarting {container_id}...\n")
-                    restart_result = subprocess.run(
-                        ["docker", "restart", container_id],
-                        capture_output=True,
-                        text=True,
-                        timeout=30
-                    )
+                    cmd = ["docker", "restart", container_id]
+                    # If remote machine, wrap command with SSH
+                    if self._current_remote_machine:
+                        ssh_cmd = self._remote_manager.build_ssh_command(self._current_remote_machine, cmd)
+                        restart_result = subprocess.run(
+                            ssh_cmd,
+                            capture_output=True,
+                            text=True,
+                            timeout=30
+                        )
+                    else:
+                        restart_result = subprocess.run(
+                            cmd,
+                            capture_output=True,
+                            text=True,
+                            timeout=30
+                        )
                     
                     if restart_result.returncode == 0:
                         progress = current_step / total_steps

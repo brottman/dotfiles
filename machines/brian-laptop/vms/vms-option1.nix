@@ -18,8 +18,8 @@
   users.users.brian.extraGroups = [ "libvirtd" ];
 
   # Define VM: example-vm (using external XML file)
-  systemd.services.define-vm-example = {
-    description = "Define VM: example-vm";
+  systemd.services.define-guestvm = {
+    description = "Define VM: guestvm";
     after = [ "libvirtd.service" ];
     requires = [ "libvirtd.service" ];
     serviceConfig = {
@@ -31,29 +31,17 @@
   };
 
   # Optionally auto-start the VM on boot
-  systemd.services.autostart-vm-example = {
-    description = "Autostart VM: example-vm";
-    after = [ "define-vm-example.service" "libvirtd.service" ];
-    requires = [ "define-vm-example.service" ];
+  systemd.services.autostart-guestvm = {
+    description = "Autostart VM: guestvm";
+    after = [ "define-guestvm.service" "libvirtd.service" ];
+    requires = [ "define-guestvm.service" ];
     serviceConfig = {
       Type = "oneshot";
       RemainAfterExit = true;
-      ExecStart = "${pkgs.libvirt}/bin/virsh autostart example-vm";
+      ExecStart = "${pkgs.libvirt}/bin/virsh autostart guestvm";
     };
     wantedBy = [ "multi-user.target" ];
   };
 
-  # Define another VM: another-vm
-  systemd.services.define-vm-another = {
-    description = "Define VM: another-vm";
-    after = [ "libvirtd.service" ];
-    requires = [ "libvirtd.service" ];
-    serviceConfig = {
-      Type = "oneshot";
-      RemainAfterExit = true;
-      ExecStart = "${pkgs.libvirt}/bin/virsh define ${./another-vm.xml}";
-    };
-    wantedBy = [ "multi-user.target" ];
-  };
 }
 

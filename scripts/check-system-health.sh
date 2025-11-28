@@ -125,7 +125,7 @@ echo "2. Checking Disk Space"
 echo "----------------------"
 
 # Get disk usage, excluding tmpfs, devtmpfs, and other virtual filesystems
-df -h 2>/dev/null | (grep -E '^/dev|^/run/media' || true) | while read -r line; do
+while IFS= read -r line; do
     filesystem=$(echo "$line" | awk '{print $1}')
     size=$(echo "$line" | awk '{print $2}')
     used=$(echo "$line" | awk '{print $3}')
@@ -147,7 +147,7 @@ df -h 2>/dev/null | (grep -E '^/dev|^/run/media' || true) | while read -r line; 
     else
         print_status "OK" "Disk $filesystem ($mount): ${use_percent}% used ($used/$size used, $avail available)"
     fi
-done
+done < <(df -h 2>/dev/null | grep -E '^/dev|^/run/media' || true)
 
 echo ""
 
@@ -292,17 +292,37 @@ echo ""
 # ============================================
 # Summary
 # ============================================
-echo "=========================================="
-echo "Summary"
-echo "=========================================="
-echo "Errors:   $ERRORS"
-echo "Warnings: $WARNINGS"
+# Ensure summary always prints, even if script exits early
+SUMMARY_SHOWN=false
+show_summary() {
+    if [ "$SUMMARY_SHOWN" = true ]; then
+        return
+    fi
+    SUMMARY_SHOWN=true
+    
+    echo "=========================================="
+    echo "Summary"
+    echo "=========================================="
+    echo "Errors:   $ERRORS"
+    echo "Warnings: $WARNINGS"
+    
+    if [ "$HEALTHY" = true ]; then
+        echo -e "${GREEN}✓ System is healthy${NC}"
+    else
+        echo -e "${RED}✗ System has issues${NC}"
+    fi
+}
 
+# Trap to ensure summary is shown even on early exit
+trap show_summary EXIT
+
+# Call summary function normally
+show_summary
+
+# Exit with appropriate code
 if [ "$HEALTHY" = true ]; then
-    echo -e "${GREEN}✓ System is healthy${NC}"
     exit 0
 else
-    echo -e "${RED}✗ System has issues${NC}"
     exit 1
 fi
 
