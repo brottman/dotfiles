@@ -1,7 +1,7 @@
 #!/usr/bin/env nix-shell
 #! nix-shell -i python3 -p python3 python3Packages.rich python3Packages.textual python3Packages.pyyaml
 """
-manage.py - System Management Console v1.14
+manage.py - System Management Console v1.15
 A beautiful terminal user interface for managing NixOS, Docker, System, Git, Network, Services, and Storage.
 """
 
@@ -30,7 +30,7 @@ except ImportError:
 try:
     from textual.app import App, ComposeResult
     from textual.widgets import (
-        Header, Footer, Static, Label, Button, Log, 
+        Header, Footer, Static, Label, Button, Log, ProgressBar,
         Tab, TabbedContent, TabPane, Input, Select
     )
     from textual.containers import Container, Horizontal, Vertical, ScrollableContainer, Grid
@@ -61,7 +61,7 @@ except ImportError:
 # Version Information
 # =============================================================================
 
-VERSION = "1.14"
+VERSION = "1.15"
 
 
 # =============================================================================
@@ -2108,6 +2108,42 @@ class ManageApp(App):
     .search-input.visible {
         display: block;
     }
+    
+    #progress-container {
+        height: auto;
+        padding: 1;
+        border: solid $primary;
+        margin-bottom: 1;
+        background: $panel;
+    }
+    
+    .progress-hidden {
+        display: none;
+    }
+    
+    .progress-visible {
+        display: block;
+    }
+    
+    #progress-step {
+        text-style: bold;
+        color: $primary;
+        height: auto;
+        min-height: 1;
+        width: 100%;
+        text-align: left;
+        padding: 0 1;
+    }
+    
+    #progress-bar {
+        height: 1;
+        margin: 1 0;
+    }
+    
+    #progress-status {
+        height: 1;
+        color: $text-muted;
+    }
     """
     
     BINDINGS = [
@@ -2305,11 +2341,24 @@ class ManageApp(App):
         error_msg += "Make sure the command is installed and available in PATH.\n"
         self._handle_error(error_msg, thread_safe=thread_safe)
     
+    def _hide_progress_bar(self) -> None:
+        """Hide the progress bar container."""
+        try:
+            progress_container = self.query_one("#progress-container", Vertical)
+            progress_container.remove_class("progress-visible")
+            progress_container.add_class("progress-hidden")
+            progress_container.display = False
+        except Exception:
+            pass
+    
     def _reset_ui_state(self) -> None:
         """
         Reset UI state to a consistent state after errors.
         This ensures the UI is never left in an inconsistent state.
         """
+        # Hide progress bar
+        self._hide_progress_bar()
+        
         # Stop spinner if it's running
         try:
             spinner = self._get_spinner()
@@ -2959,6 +3008,11 @@ class ManageApp(App):
                 
                 # Right side: Output panel
                 with Vertical(id="output-panel"):
+                    # Progress indicator (hidden by default)
+                    with Vertical(id="progress-container", classes="progress-hidden"):
+                        yield Static("", id="progress-step")
+                        yield ProgressBar(id="progress-bar", total=100, show_eta=False)
+                        yield Static("", id="progress-status")
                     # Output content
                     with Vertical(id="output-content"):
                         yield OutputLog(id="output-log", highlight=True)
@@ -3323,6 +3377,8 @@ class ManageApp(App):
                     # Second Enter press - confirm and execute
                     self._dangerous_confirmation_count = 0
                     self._pending_dangerous_action = None
+                    # Hide progress bar from previous command
+                    self._hide_progress_bar()
                     spinner.start()
                     output_log.clear()
                     output_log.write_line(f"Executing: {title}\n")
@@ -3346,6 +3402,8 @@ class ManageApp(App):
             
             # First Enter press - show warning and ask for confirmation
             spinner.stop()
+            # Hide progress bar from previous command
+            self._hide_progress_bar()
             output_log.clear()
             output_log.write_line(f"⚠️  WARNING: '{title}' is a dangerous operation!\n")
             output_log.write_line("Press Enter twice to confirm and execute this command.\n")
@@ -3360,6 +3418,9 @@ class ManageApp(App):
         # Reset dangerous action state if a non-dangerous action is selected
         self._pending_dangerous_action = None
         self._dangerous_confirmation_count = 0
+        
+        # Hide progress bar from previous command
+        self._hide_progress_bar()
         
         spinner.start()
         output_log.clear()
@@ -3554,7 +3615,55 @@ class ManageApp(App):
         """
         def run_in_thread():
             try:
+                # Show progress indicator
+                total_steps = 2  # 1 for getting list, 1+ for restarting containers
+                current_step = 0
+                
+                def update_progress(step: int, step_name: str, progress: float = 0.0, status: str = "") -> None:
+                    """Update progress indicator."""
+                    try:
+                        progress_container = self.query_one("#progress-container", Vertical)
+                        progress_step = self.query_one("#progress-step", Static)
+                        progress_bar = self.query_one("#progress-bar", ProgressBar)
+                        progress_status = self.query_one("#progress-status", Static)
+                        
+                        progress_container.display = True
+                        progress_container.remove_class("progress-hidden")
+                        progress_container.add_class("progress-visible")
+                        
+                        progress_step.update(f"Step {step}/{total_steps}: {step_name}")
+                        progress_value = min(100, max(0, int(progress * 100)))
+                        try:
+                            if hasattr(progress_bar, 'progress'):
+                                progress_bar.progress = progress_value
+                            elif hasattr(progress_bar, 'update'):
+                                progress_bar.update(progress=progress_value)
+                            elif hasattr(progress_bar, 'advance'):
+                                current = getattr(progress_bar, 'progress', 0) or 0
+                                if progress_value > current:
+                                    progress_bar.advance(progress_value - current)
+                        except Exception:
+                            pass
+                        
+                        if status:
+                            progress_status.update(status)
+                        else:
+                            progress_status.update("")
+                    except Exception:
+                        pass
+                
+                def hide_progress() -> None:
+                    """Hide progress indicator."""
+                    try:
+                        progress_container = self.query_one("#progress-container", Vertical)
+                        progress_container.remove_class("progress-visible")
+                        progress_container.add_class("progress-hidden")
+                    except Exception:
+                        pass
+                
                 # First, get list of running container IDs
+                current_step += 1
+                self.call_from_thread(update_progress, current_step, "Getting container list", 0.0, "Querying Docker...")
                 self.call_from_thread(output_log.write_line, "Getting list of running containers...\n")
                 ps_result = subprocess.run(
                     ["docker", "ps", "-q"],
@@ -3565,6 +3674,7 @@ class ManageApp(App):
                 
                 if ps_result.returncode != 0:
                     self.call_from_thread(output_log.write_line, f"✗ Error getting container list: {ps_result.stderr}\n")
+                    self.call_from_thread(hide_progress)
                     self.call_from_thread(self._reset_ui_state)
                     return
                 
@@ -3572,13 +3682,20 @@ class ManageApp(App):
                 
                 if not container_ids:
                     self.call_from_thread(output_log.write_line, "No running containers to restart.\n")
+                    self.call_from_thread(hide_progress)
                     self.call_from_thread(self._reset_ui_state)
                     return
                 
+                # Update total steps now that we know how many containers
+                total_steps = 1 + len(container_ids)
                 self.call_from_thread(output_log.write_line, f"Found {len(container_ids)} running container(s). Restarting...\n\n")
                 
                 # Restart each container individually (safer than shell substitution)
-                for container_id in container_ids:
+                for idx, container_id in enumerate(container_ids):
+                    current_step += 1
+                    progress = (current_step - 1) / total_steps
+                    self.call_from_thread(update_progress, current_step, f"Restarting {container_id[:12]}", progress, f"Restarting container {idx + 1}/{len(container_ids)}...")
+                    
                     # Sanitize container ID (should only contain hex chars, but validate anyway)
                     if not re.match(r'^[a-fA-F0-9]+$', container_id):
                         self.call_from_thread(output_log.write_line, f"⚠ Skipping invalid container ID: {container_id}\n")
@@ -3593,11 +3710,16 @@ class ManageApp(App):
                     )
                     
                     if restart_result.returncode == 0:
+                        progress = current_step / total_steps
+                        self.call_from_thread(update_progress, current_step, f"Restarting {container_id[:12]}", progress, f"✓ {container_id[:12]} restarted")
                         self.call_from_thread(output_log.write_line, f"✓ {container_id} restarted\n")
                     else:
+                        progress = current_step / total_steps
+                        self.call_from_thread(update_progress, current_step, f"Restarting {container_id[:12]}", progress, f"✗ {container_id[:12]} failed")
                         self.call_from_thread(output_log.write_line, f"✗ Failed to restart {container_id}: {restart_result.stderr}\n")
                 
                 self.call_from_thread(output_log.write_line, "\n✓ All containers restarted\n")
+                self.call_from_thread(hide_progress)
                 self.call_from_thread(self._reset_ui_state)
                 
             except subprocess.TimeoutExpired:
@@ -3735,9 +3857,82 @@ class ManageApp(App):
     def _rebuild_all_machines(self, output_log: OutputLog) -> None:
         """Rebuild all machine configurations."""
         def run_in_thread():
+            # Show progress indicator
+            total_steps = 1 + len(self.machines_list)  # 1 for lock update + 1 per machine
+            current_step = 0
+            
+            # Show summary of all steps at the beginning
+            self.call_from_thread(output_log.write_line, f"Rebuild All Machines - {total_steps} steps:\n")
+            self.call_from_thread(output_log.write_line, f"  1. Updating lock file\n")
+            for idx, machine in enumerate(self.machines_list, start=2):
+                self.call_from_thread(output_log.write_line, f"  {idx}. Building {machine}\n")
+            self.call_from_thread(output_log.write_line, "\n")
+            self.call_from_thread(output_log.flush)
+            
+            def update_progress(step: int, step_name: str, progress: float = 0.0, status: str = "") -> None:
+                """Update progress indicator."""
+                try:
+                    progress_container = self.query_one("#progress-container", Vertical)
+                    progress_step = self.query_one("#progress-step", Static)
+                    progress_bar = self.query_one("#progress-bar", ProgressBar)
+                    progress_status = self.query_one("#progress-status", Static)
+                    
+                    # Make container visible - use display property instead of classes
+                    progress_container.display = True
+                    progress_container.remove_class("progress-hidden")
+                    progress_container.add_class("progress-visible")
+                    
+                    # Update step text - make it more descriptive
+                    step_text = f"Step {step}/{total_steps}: {step_name}"
+                    progress_step.update(step_text)
+                    
+                    # Update progress bar - Textual ProgressBar uses progress as 0-100
+                    progress_value = min(100, max(0, int(progress * 100)))
+                    # Try to update the progress bar
+                    try:
+                        # Method 1: Direct attribute assignment
+                        if hasattr(progress_bar, 'progress'):
+                            progress_bar.progress = progress_value
+                        # Method 2: Use update method
+                        elif hasattr(progress_bar, 'update'):
+                            progress_bar.update(progress=progress_value)
+                        # Method 3: Use advance method
+                        elif hasattr(progress_bar, 'advance'):
+                            current = getattr(progress_bar, 'progress', 0) or 0
+                            if progress_value > current:
+                                progress_bar.advance(progress_value - current)
+                    except Exception as update_error:
+                        # If all methods fail, at least show the step text
+                        pass
+                    
+                    if status:
+                        progress_status.update(status)
+                    else:
+                        progress_status.update("")
+                except Exception as e:
+                    # Debug: log error to output
+                    try:
+                        self.call_from_thread(output_log.write_line, f"Progress update error: {type(e).__name__}: {str(e)[:100]}\n")
+                    except:
+                        pass
+            
+            def hide_progress() -> None:
+                """Hide progress indicator."""
+                try:
+                    progress_container = self.query_one("#progress-container", Vertical)
+                    progress_container.remove_class("progress-visible")
+                    progress_container.add_class("progress-hidden")
+                except Exception:
+                    pass
+            
             # Try to update lock file first if it's out of date
             # This handles the case where flake.nix has new inputs not in lock file
-            self.call_from_thread(output_log.write_line, "Updating lock file if needed...\n")
+            current_step += 1
+            step_name = "Updating lock file"
+            # Show progress immediately
+            self.call_from_thread(update_progress, current_step, step_name, 0.0, "Checking for updates...")
+            self.call_from_thread(output_log.write_line, f"[{current_step}/{total_steps}] {step_name}...\n")
+            self.call_from_thread(output_log.flush)
             lock_file_updated = False
             update_result = subprocess.run(
                 ["nix", "flake", "update",
@@ -3822,8 +4017,16 @@ class ManageApp(App):
             # (in case the update didn't fully complete or there are nested dependencies)
             no_update_flag = [] if lock_file_updated else ["--no-update-lock-file"]
             
-            for machine in self.machines_list:
-                self.call_from_thread(output_log.write_line, f"\nBuilding {machine}...\n")
+            # Update progress for lock file step completion
+            progress = current_step / total_steps
+            self.call_from_thread(update_progress, current_step, "Updating lock file", progress, "Lock file ready")
+            
+            for idx, machine in enumerate(self.machines_list):
+                current_step += 1
+                step_name = f"Building {machine}"
+                progress = (current_step - 1) / total_steps  # Progress before current step completes
+                self.call_from_thread(update_progress, current_step, step_name, progress, f"Building configuration for {machine}...")
+                self.call_from_thread(output_log.write_line, f"\n[{current_step}/{total_steps}] {step_name}...\n")
                 try:
                     cmd = ["nix", "build", f".#nixosConfigurations.{machine}.config.system.build.toplevel",
                            "--extra-experimental-features", "nix-command flakes"] + no_update_flag
@@ -3835,8 +4038,12 @@ class ManageApp(App):
                         timeout=300  # 5 minute timeout per build
                     )
                     if result.returncode == 0:
+                        # Progress already calculated above
+                        self.call_from_thread(update_progress, current_step, f"Building {machine}", progress, f"✓ {machine} built successfully")
                         self.call_from_thread(output_log.write_line, f"✓ {machine} built successfully\n")
                     else:
+                        # Update progress to show failure
+                        self.call_from_thread(update_progress, current_step, f"Building {machine}", progress, f"✗ {machine} failed")
                         error_msg = result.stderr
                         # Check for various lock file error messages
                         if ("requires lock file changes" in error_msg or 
@@ -3879,10 +4086,14 @@ class ManageApp(App):
                 except Exception as e:
                     self.call_from_thread(output_log.write_line, f"✗ {machine} error: {e}\n")
             
+            # Final progress update
+            self.call_from_thread(update_progress, total_steps, "Complete", 1.0, "All machines processed")
             self.call_from_thread(output_log.write_line, "\n" + "-" * 60 + "\n")
             self.call_from_thread(output_log.write_line, "All machines processed.\n")
             spinner = self.query_one("#spinner", Spinner)
             self.call_from_thread(spinner.stop)
+            # Hide progress after a short delay
+            self.call_after_refresh(lambda: self.call_after_refresh(hide_progress))
         
         thread = threading.Thread(target=run_in_thread, daemon=True)
         thread.start()
@@ -3972,27 +4183,93 @@ class ManageApp(App):
         if health_script.exists():
             self._run_streaming([str(health_script)], output_log)
         else:
-            output_log.write_line("Running basic health checks...\n\n")
+            def run_in_thread():
+                # Show progress indicator
+                total_steps = 3  # Nix daemon, disk space, memory
+                current_step = 0
+                
+                def update_progress(step: int, step_name: str, progress: float = 0.0, status: str = "") -> None:
+                    """Update progress indicator."""
+                    try:
+                        progress_container = self.query_one("#progress-container", Vertical)
+                        progress_step = self.query_one("#progress-step", Static)
+                        progress_bar = self.query_one("#progress-bar", ProgressBar)
+                        progress_status = self.query_one("#progress-status", Static)
+                        
+                        progress_container.display = True
+                        progress_container.remove_class("progress-hidden")
+                        progress_container.add_class("progress-visible")
+                        
+                        progress_step.update(f"Step {step}/{total_steps}: {step_name}")
+                        progress_value = min(100, max(0, int(progress * 100)))
+                        try:
+                            if hasattr(progress_bar, 'progress'):
+                                progress_bar.progress = progress_value
+                            elif hasattr(progress_bar, 'update'):
+                                progress_bar.update(progress=progress_value)
+                            elif hasattr(progress_bar, 'advance'):
+                                current = getattr(progress_bar, 'progress', 0) or 0
+                                if progress_value > current:
+                                    progress_bar.advance(progress_value - current)
+                        except Exception:
+                            pass
+                        
+                        if status:
+                            progress_status.update(status)
+                        else:
+                            progress_status.update("")
+                    except Exception:
+                        pass
+                
+                def hide_progress() -> None:
+                    """Hide progress indicator."""
+                    try:
+                        progress_container = self.query_one("#progress-container", Vertical)
+                        progress_container.remove_class("progress-visible")
+                        progress_container.add_class("progress-hidden")
+                    except Exception:
+                        pass
+                
+                self.call_from_thread(output_log.write_line, "Running basic health checks...\n\n")
+                
+                # Check Nix daemon
+                current_step += 1
+                self.call_from_thread(update_progress, current_step, "Checking Nix daemon", (current_step - 1) / total_steps, "Checking service status...")
+                result = subprocess.run(["systemctl", "is-active", "nix-daemon"], capture_output=True, text=True)
+                if result.returncode == 0:
+                    self.call_from_thread(output_log.write_line, "✓ Nix daemon is running\n")
+                    self.call_from_thread(update_progress, current_step, "Checking Nix daemon", current_step / total_steps, "✓ Nix daemon is running")
+                else:
+                    self.call_from_thread(output_log.write_line, "✗ Nix daemon is not running\n")
+                    self.call_from_thread(update_progress, current_step, "Checking Nix daemon", current_step / total_steps, "✗ Nix daemon is not running")
+                
+                # Check disk space
+                current_step += 1
+                self.call_from_thread(update_progress, current_step, "Checking disk space", (current_step - 1) / total_steps, "Analyzing disk usage...")
+                result = subprocess.run(["df", "-h", "/"], capture_output=True, text=True)
+                self.call_from_thread(output_log.write_line, "\nDisk Space:\n")
+                self.call_from_thread(output_log.write_line, result.stdout)
+                self.call_from_thread(update_progress, current_step, "Checking disk space", current_step / total_steps, "✓ Disk space checked")
+                
+                # Check memory
+                current_step += 1
+                self.call_from_thread(update_progress, current_step, "Checking memory", (current_step - 1) / total_steps, "Analyzing memory usage...")
+                result = subprocess.run(["free", "-h"], capture_output=True, text=True)
+                self.call_from_thread(output_log.write_line, "\nMemory:\n")
+                self.call_from_thread(output_log.write_line, result.stdout)
+                self.call_from_thread(update_progress, current_step, "Checking memory", current_step / total_steps, "✓ Memory checked")
+                
+                self.call_from_thread(output_log.write_line, "\n" + "-" * 60 + "\n")
+                self.call_from_thread(hide_progress)
+                self.call_from_thread(self._write_separator)
+                self.call_from_thread(self._handle_success)
             
-            # Check Nix daemon
-            result = subprocess.run(["systemctl", "is-active", "nix-daemon"], capture_output=True, text=True)
-            if result.returncode == 0:
-                output_log.write_line("✓ Nix daemon is running\n")
-            else:
-                output_log.write_line("✗ Nix daemon is not running\n")
+            # Start spinner
+            self._get_spinner().start()
             
-            # Check disk space
-            result = subprocess.run(["df", "-h", "/"], capture_output=True, text=True)
-            output_log.write_line("\nDisk Space:\n")
-            output_log.write_line(result.stdout)
-            
-            # Check memory
-            result = subprocess.run(["free", "-h"], capture_output=True, text=True)
-            output_log.write_line("\nMemory:\n")
-            output_log.write_line(result.stdout)
-            
-            self._write_separator()
-            self._handle_success()
+            # Run in thread
+            thread = threading.Thread(target=run_in_thread, daemon=True)
+            thread.start()
     
     def _run_system_info(self, output_log: OutputLog) -> None:
         """Display system information."""
