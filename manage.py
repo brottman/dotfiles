@@ -49,6 +49,10 @@ except ImportError:
 try:
     from rich.console import Console
     from rich.text import Text
+    from rich.table import Table
+    from rich.syntax import Syntax
+    from rich.panel import Panel
+    from rich.markup import escape
 except ImportError:
     print("Error: rich library not found. Please install it with:")
     print("  pip install rich")
@@ -2292,6 +2296,51 @@ class ManageApp(App):
             self._write_output(message)
             self._flush_output()
     
+    def _format_table(self, headers: List[str], rows: List[List[str]], title: Optional[str] = None) -> str:
+        """
+        Format data as a Rich table and return as plain text.
+        
+        Args:
+            headers: List of column headers
+            rows: List of rows, each row is a list of cell values
+            title: Optional table title
+            
+        Returns:
+            Formatted table as plain text string
+        """
+        console = Console(width=120, force_terminal=False, legacy_windows=False)
+        table = Table(show_header=True, header_style="bold magenta", box=None, show_lines=False)
+        
+        if title:
+            table.title = title
+        
+        # Add columns
+        for header in headers:
+            table.add_column(header, style="cyan", no_wrap=False, overflow="fold")
+        
+        # Add rows
+        for row in rows:
+            # Ensure row has same length as headers (pad with empty strings if needed)
+            padded_row = row + [''] * (len(headers) - len(row))
+            table.add_row(*[str(cell) for cell in padded_row[:len(headers)]])
+        
+        # Render to string
+        with console.capture() as capture:
+            console.print(table)
+        return capture.get()
+    
+    def _format_success(self, message: str) -> str:
+        """Format a success message with color."""
+        return f"[green]✓[/green] {message}"
+    
+    def _format_error(self, message: str) -> str:
+        """Format an error message with color."""
+        return f"[red]✗[/red] {message}"
+    
+    def _format_warning(self, message: str) -> str:
+        """Format a warning message with color."""
+        return f"[yellow]⚠[/yellow] {message}"
+    
     def _handle_success(self, message: Optional[str] = None, thread_safe: bool = False) -> None:
         """
         Handle success: stop spinner with success indicator and optionally write message.
@@ -2301,15 +2350,19 @@ class ManageApp(App):
             thread_safe: If True, use call_from_thread for thread safety
         """
         spinner = self._get_spinner()
+        if message:
+            formatted_msg = self._format_success(message) + "\n"
+        else:
+            formatted_msg = self._format_success("Command completed successfully") + "\n"
         if thread_safe:
             self.call_from_thread(spinner.stop_success)
             if message:
-                self.call_from_thread(self._get_output_log().write_line, message)
+                self.call_from_thread(self._get_output_log().write_line, formatted_msg)
             self.call_from_thread(self._flush_output)
         else:
             spinner.stop_success()
             if message:
-                self._write_output(message)
+                self._write_output(formatted_msg)
             self._flush_output()
     
     def _handle_command_error(self, cmd_name: str, error: Exception, 
@@ -2829,9 +2882,9 @@ class ManageApp(App):
         registry.register("devshells", lambda m, log: self._list_devshells(log))
         
         # Docker commands
-        registry.register("docker-ps", lambda m, log: self._run_streaming(["docker", "ps"], log))
-        registry.register("docker-ps-all", lambda m, log: self._run_streaming(["docker", "ps", "-a"], log))
-        registry.register("docker-images", lambda m, log: self._run_streaming(["docker", "images"], log))
+        registry.register("docker-ps", lambda m, log: self._run_docker_ps(log, all_containers=False))
+        registry.register("docker-ps-all", lambda m, log: self._run_docker_ps(log, all_containers=True))
+        registry.register("docker-images", lambda m, log: self._run_docker_images(log))
         registry.register("docker-compose-up", lambda m, log: self._run_streaming(
             ["docker", "compose", "up", "-d"], log))
         registry.register("docker-compose-down", lambda m, log: self._run_streaming(
@@ -3607,6 +3660,111 @@ class ManageApp(App):
         
         # Execute command asynchronously
         self._command_executor.execute_async(cmd, shell=shell)
+    
+    def _run_docker_ps(self, output_log: OutputLog, all_containers: bool = False) -> None:
+        """Run docker ps and format output as a Rich table."""
+        def run_in_thread():
+            try:
+                cmd = ["docker", "ps"] + (["-a"] if all_containers else [])
+                result = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=10
+                )
+                
+                if result.returncode != 0:
+                    self.call_from_thread(output_log.write_line, f"✗ Error: {result.stderr}\n")
+                    self.call_from_thread(self._reset_ui_state)
+                    return
+                
+                # Parse docker ps output
+                lines = result.stdout.strip().split('\n')
+                if len(lines) < 2:
+                    self.call_from_thread(output_log.write_line, "No containers found.\n")
+                    self.call_from_thread(self._reset_ui_state)
+                    return
+                
+                # Parse header and rows
+                header_line = lines[0]
+                headers = header_line.split()
+                rows = []
+                
+                for line in lines[1:]:
+                    if line.strip():
+                        # Split by whitespace, but handle quoted values
+                        parts = line.split()
+                        if len(parts) >= len(headers):
+                            rows.append(parts[:len(headers)])
+                
+                # Format as table
+                title = "All Containers" if all_containers else "Running Containers"
+                table_text = self._format_table(headers, rows, title=title)
+                self.call_from_thread(output_log.write_line, table_text)
+                self.call_from_thread(output_log.write_line, "\n")
+                self.call_from_thread(self._reset_ui_state)
+                
+            except subprocess.TimeoutExpired:
+                self.call_from_thread(output_log.write_line, "✗ Error: Command timed out\n")
+                self.call_from_thread(self._reset_ui_state)
+            except Exception as e:
+                self.call_from_thread(output_log.write_line, f"✗ Error: {e}\n")
+                self.call_from_thread(self._reset_ui_state)
+        
+        self._get_spinner().start()
+        thread = threading.Thread(target=run_in_thread, daemon=True)
+        thread.start()
+    
+    def _run_docker_images(self, output_log: OutputLog) -> None:
+        """Run docker images and format output as a Rich table."""
+        def run_in_thread():
+            try:
+                result = subprocess.run(
+                    ["docker", "images"],
+                    capture_output=True,
+                    text=True,
+                    timeout=10
+                )
+                
+                if result.returncode != 0:
+                    self.call_from_thread(output_log.write_line, f"✗ Error: {result.stderr}\n")
+                    self.call_from_thread(self._reset_ui_state)
+                    return
+                
+                # Parse docker images output
+                lines = result.stdout.strip().split('\n')
+                if len(lines) < 2:
+                    self.call_from_thread(output_log.write_line, "No images found.\n")
+                    self.call_from_thread(self._reset_ui_state)
+                    return
+                
+                # Parse header and rows
+                header_line = lines[0]
+                headers = header_line.split()
+                rows = []
+                
+                for line in lines[1:]:
+                    if line.strip():
+                        parts = line.split()
+                        if len(parts) >= len(headers):
+                            rows.append(parts[:len(headers)])
+                
+                # Format as table
+                table_text = self._format_table(headers, rows, title="Docker Images")
+                self.call_from_thread(output_log.write_line, table_text)
+                self.call_from_thread(output_log.write_line, "\n")
+                self.call_from_thread(self._reset_ui_state)
+                
+            except subprocess.TimeoutExpired:
+                self.call_from_thread(output_log.write_line, "✗ Error: Command timed out\n")
+                self.call_from_thread(self._reset_ui_state)
+            except Exception as e:
+                self.call_from_thread(output_log.write_line, f"✗ Error: {e}\n")
+                self.call_from_thread(self._reset_ui_state)
+        
+        self._get_spinner().start()
+        thread = threading.Thread(target=run_in_thread, daemon=True)
+        thread.start()
     
     def _run_docker_restart_all(self, output_log: OutputLog) -> None:
         """
