@@ -51,7 +51,24 @@
         # Undefine the VM if it already exists (idempotent operation)
         # This allows the configuration to be updated without manual intervention
         if ${pkgs.libvirt}/bin/virsh dominfo guestvm &>/dev/null; then
-          ${pkgs.libvirt}/bin/virsh undefine guestvm || true
+          # If the domain is running, destroy it first (works for both transient and persistent)
+          if ${pkgs.libvirt}/bin/virsh domstate guestvm 2>/dev/null | grep -q "running"; then
+            ${pkgs.libvirt}/bin/virsh destroy guestvm || true
+            # Wait a moment for transient domains to be removed
+            sleep 1
+          fi
+          # Try to undefine (will fail for transient domains, but that's okay)
+          # Transient domains are automatically removed when destroyed
+          ${pkgs.libvirt}/bin/virsh undefine guestvm 2>/dev/null || true
+          # Wait a moment to ensure the domain is fully removed
+          sleep 1
+          # Final check: if domain still exists, it might be a transient domain that wasn't properly removed
+          # Try destroying it one more time in case it's in an odd state
+          if ${pkgs.libvirt}/bin/virsh dominfo guestvm &>/dev/null; then
+            ${pkgs.libvirt}/bin/virsh destroy guestvm 2>/dev/null || true
+            sleep 1
+            ${pkgs.libvirt}/bin/virsh undefine guestvm 2>/dev/null || true
+          fi
         fi
         
         # Define the VM
@@ -104,20 +121,10 @@
           </devices>
         </domain>
         EOF
+        
+        # Disable autostart for the VM
+        ${pkgs.libvirt}/bin/virsh autostart --disable guestvm 2>/dev/null || true
       '';
-    };
-    wantedBy = [ "multi-user.target" ];
-  };
-
-  # Optionally auto-start the VM on boot
-  systemd.services.autostart-vm-guestvm = {
-    description = "Autostart VM: guestvm";
-    after = [ "define-vm-guestvm.service" "libvirtd.service" ];
-    requires = [ "define-vm-guestvm.service" ];
-    serviceConfig = {
-      Type = "oneshot";
-      RemainAfterExit = true;
-      ExecStart = "${pkgs.libvirt}/bin/virsh autostart guestvm";
     };
     wantedBy = [ "multi-user.target" ];
   };
