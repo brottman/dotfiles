@@ -174,6 +174,7 @@
   # Additional packages for laptop
   environment.systemPackages = with pkgs; [
     anki
+    antigravity
     bluez
     bluez-tools
     google-chrome
