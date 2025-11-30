@@ -143,6 +143,10 @@
     dedicatedServer.openFirewall = true;
   };
 
+  # AppImage support
+  programs.appimage.enable = true;
+  programs.appimage.binfmt = true; # For NixOS 24.05+
+
 
   # Firewall
   networking.firewall = {
@@ -175,6 +179,7 @@
   environment.systemPackages = with pkgs; [
     anki
     antigravity
+    appimage-run
     bluez
     bluez-tools
     google-chrome
@@ -190,6 +195,7 @@
     joplin-desktop
     lmstudio
     lutris
+    nodejs
     opencode
     pinta
     prismlauncher
@@ -203,6 +209,8 @@
     seafile-client
     srm
     thunderbird
+    tor
+    tor-browser
     qbittorrent
     scrcpy
     gzdoom
