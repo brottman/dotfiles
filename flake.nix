@@ -21,6 +21,20 @@
       system = "x86_64-linux";
       pkgs = nixpkgs.legacyPackages.${system};
       pkgs-stable = nixpkgs-stable.legacyPackages.${system};
+      
+      # CodeNomad package - wrapper around npx for the npm package
+      codenomad = pkgs.writeShellApplication {
+        name = "codenomad";
+        runtimeInputs = [ pkgs.nodejs ];
+        text = ''
+          exec ${pkgs.nodejs}/bin/npx --yes @neuralnomads/codenomad "$@"
+        '';
+        meta = with pkgs.lib; {
+          description = "A fast, multi-instance workspace for running OpenCode sessions";
+          homepage = "https://github.com/NeuralNomadsAI/CodeNomad";
+          license = licenses.mit;
+        };
+      };
     in
     {
       nixosConfigurations = {
@@ -38,6 +52,14 @@
               home-manager.users.brian = import ./machines/brian-laptop/home.nix;
               # Make plasma-manager available (renamed: homeManagerModules -> homeModules; attr is plasma-manager)
               home-manager.sharedModules = [ plasma-manager.homeModules.plasma-manager ];
+            }
+            {
+              # Make CodeNomad available
+              nixpkgs.overlays = [
+                (final: prev: {
+                  codenomad = codenomad;
+                })
+              ];
             }
           ];
         };

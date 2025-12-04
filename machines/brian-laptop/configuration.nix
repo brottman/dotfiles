@@ -184,6 +184,7 @@
     bluez-tools
     google-chrome
     code-cursor
+    codenomad
     devenv
     dtrx # file extractor
     exiftool
@@ -193,9 +194,11 @@
     gimp
     gocryptfs
     joplin-desktop
+    kdePackages.kcalc
     lmstudio
     lutris
     nodejs
+    nzbget
     opencode
     pinta
     prismlauncher
@@ -229,8 +232,8 @@
 
   # Environment aliases
   environment.shellAliases = {
-    update = "sudo sh ~/dotfiles/manage-nixos.sh switch";
-    gc = "sudo sh ~/dotfiles/manage-nixos.sh switch";
+    update = "sudo sh ~/dotfiles/manage.py switch";
+    gc = "sudo sh ~/dotfiles/manage.py gc";
     ff = "fastfetch";
     lock = "sudo umount /data/archive/plain";
     #unlock = "sudo mount /dev/disk/by-uuid/04966b6f-b27c-4b47-a589-c3243e9a03bf /data/archive/plain";
