@@ -399,6 +399,8 @@ class SysManage(App):
     
     TITLE = "SysManage"
     CSS = CSS
+    ENABLE_COMMAND_PALETTE = False
+    ALLOW_SELECT = True
     
     BINDINGS = [
         Binding("q", "quit", "Quit", show=True),
@@ -417,7 +419,8 @@ class SysManage(App):
         Binding("down", "next_cmd", "↓", show=False),
         Binding("enter", "run_focused", "Run", show=False),
         Binding("r", "refresh", "Refresh", show=True),
-        Binding("c", "cancel_command", "Cancel", show=True),
+        Binding("x", "cancel_command", "Cancel", show=True),
+        Binding("ctrl+c", "copy_output", "^C Copy", show=True),
     ]
     
     current_section = reactive("system")
@@ -742,6 +745,75 @@ class SysManage(App):
         if isinstance(focused, Button):
             focused.press()
     
+    def action_copy_output(self) -> None:
+        """Copy current output panel content to clipboard."""
+        # Map sections to their output widget IDs
+        output_map = {
+            "system": "system-output",
+            "nixos": "nixos-output",
+            "docker": "docker-output",
+            "logs": "log-output",
+            "git": "git-output",
+            "network": "network-output",
+            "services": "services-output",
+            "storage": "storage-output",
+        }
+        
+        output_id = output_map.get(self.current_section)
+        if not output_id:
+            return
+        
+        try:
+            log = self.query_one(f"#{output_id}", RichLog)
+            # Get all the text content from the log
+            lines = []
+            for line in log.lines:
+                # Extract plain text from the line
+                if hasattr(line, 'text'):
+                    lines.append(line.text)
+                elif hasattr(line, 'plain'):
+                    lines.append(line.plain)
+                else:
+                    lines.append(str(line))
+            
+            text = "\n".join(lines)
+            
+            if text:
+                # Try different clipboard methods
+                try:
+                    # Try wl-copy (Wayland)
+                    process = subprocess.Popen(
+                        ["wl-copy"],
+                        stdin=subprocess.PIPE,
+                        stderr=subprocess.DEVNULL
+                    )
+                    process.communicate(input=text.encode())
+                    if process.returncode == 0:
+                        self.notify("Copied to clipboard!", severity="information")
+                        return
+                except FileNotFoundError:
+                    pass
+                
+                try:
+                    # Try xclip (X11)
+                    process = subprocess.Popen(
+                        ["xclip", "-selection", "clipboard"],
+                        stdin=subprocess.PIPE,
+                        stderr=subprocess.DEVNULL
+                    )
+                    process.communicate(input=text.encode())
+                    if process.returncode == 0:
+                        self.notify("Copied to clipboard!", severity="information")
+                        return
+                except FileNotFoundError:
+                    pass
+                
+                self.notify("No clipboard tool found (need wl-copy or xclip)", severity="error")
+            else:
+                self.notify("Nothing to copy", severity="warning")
+        except Exception as e:
+            self.notify(f"Copy failed: {e}", severity="error")
+    
     def action_refresh(self) -> None:
         """Refresh current section."""
         if self.current_section == "system":
@@ -965,8 +1037,55 @@ systemctl list-units --state=failed --no-legend | head -5 || echo "None"
     
     @on(Button.Pressed, "#btn-nix-machines")
     def nix_machines(self) -> None:
-        cmd = f"cd {DOTFILES_PATH} && nix flake show --json 2>/dev/null | python3 -c \"import sys,json; d=json.load(sys.stdin); print('Machines in flake:'); print(); [print(f'  • {{k}}') for k in d.get('nixosConfigurations',{{}}).keys()]\""
-        self.run_command(cmd, "nixos-output", "Flake Machines")
+        cmd = r'''
+echo "══════════════════════════════════════════════════════════════"
+echo "                    NIXOS MACHINES STATUS"
+echo "══════════════════════════════════════════════════════════════"
+echo ""
+
+CURRENT_HOST=$(hostname)
+
+for machine in brian-laptop superheavy backup docker; do
+    echo "┌─────────────────────────────────────────────────────────────"
+    echo "│ 🖥️  $machine"
+    echo "├─────────────────────────────────────────────────────────────"
+    
+    if [ "$machine" = "$CURRENT_HOST" ]; then
+        VERSION=$(nixos-version 2>/dev/null || echo "unknown")
+        KERNEL=$(uname -r)
+        UPTIME=$(uptime -p 2>/dev/null || echo "unknown")
+        LAST_CHANGE=$(stat -c %y /run/current-system 2>/dev/null | cut -d. -f1 || echo "unknown")
+        GEN=$(readlink /nix/var/nix/profiles/system 2>/dev/null | grep -oE "[0-9]+" | tail -1 || echo "?")
+        
+        echo "│  Status:      ✓ Local (this machine)"
+        echo "│  NixOS:       $VERSION"
+        echo "│  Kernel:      $KERNEL"
+        echo "│  Generation:  $GEN"
+        echo "│  Last Switch: $LAST_CHANGE"
+        echo "│  Uptime:      $UPTIME"
+    else
+        if ssh -o ConnectTimeout=3 -o BatchMode=yes "$machine" echo ok >/dev/null 2>&1; then
+            VERSION=$(ssh -o ConnectTimeout=5 "$machine" nixos-version 2>/dev/null || echo "unknown")
+            KERNEL=$(ssh -o ConnectTimeout=5 "$machine" uname -r 2>/dev/null || echo "unknown")
+            UPTIME=$(ssh -o ConnectTimeout=5 "$machine" uptime -p 2>/dev/null || echo "unknown")
+            LAST_CHANGE=$(ssh -o ConnectTimeout=5 "$machine" 'stat -c %y /run/current-system 2>/dev/null | cut -d. -f1' || echo "unknown")
+            GEN=$(ssh -o ConnectTimeout=5 "$machine" 'readlink /nix/var/nix/profiles/system | grep -oE "[0-9]+" | tail -1' 2>/dev/null || echo "?")
+            
+            echo "│  Status:      ✓ Online"
+            echo "│  NixOS:       $VERSION"
+            echo "│  Kernel:      $KERNEL"
+            echo "│  Generation:  $GEN"
+            echo "│  Last Switch: $LAST_CHANGE"
+            echo "│  Uptime:      $UPTIME"
+        else
+            echo "│  Status:      ✗ Offline or unreachable"
+        fi
+    fi
+    echo "└─────────────────────────────────────────────────────────────"
+    echo ""
+done
+'''
+        self.run_command(cmd, "nixos-output", "NixOS Machines")
     
     # ========================================================================
     # Docker Management
