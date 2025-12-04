@@ -198,7 +198,6 @@
     lmstudio
     lutris
     nodejs
-    nzbget
     opencode
     pinta
     prismlauncher
