@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# SysManage launcher - TUI System Management Tool
+# Usage: sm or ./sm
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+exec nix-shell -p python3Packages.textual python3Packages.rich --run "python3 $SCRIPT_DIR/sysmanage.py"
+

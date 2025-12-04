@@ -231,8 +231,10 @@
 
   # Environment aliases
   environment.shellAliases = {
-    update = "sudo sh ~/dotfiles/manage.py switch";
-    gc = "sudo sh ~/dotfiles/manage.py gc";
+    update = "sudo nixos-rebuild switch --flake ~/dotfiles#brian-laptop";
+    gc = "sudo nix-collect-garbage -d";
+    sm = "~/dotfiles/sm";
+    sysmanage = "~/dotfiles/sm";
     ff = "fastfetch";
     lock = "sudo umount /data/archive/plain";
     #unlock = "sudo mount /dev/disk/by-uuid/04966b6f-b27c-4b47-a589-c3243e9a03bf /data/archive/plain";
