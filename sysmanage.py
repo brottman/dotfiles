@@ -1033,7 +1033,52 @@ systemctl list-units --state=failed --no-legend | head -5 || echo "None"
     
     @on(Button.Pressed, "#btn-nix-generations")
     def nix_generations(self) -> None:
-        self.run_command("sudo nix-env --list-generations --profile /nix/var/nix/profiles/system", "nixos-output", "NixOS Generations")
+        cmd = r'''
+echo "══════════════════════════════════════════════════════════════"
+echo "                    NIXOS GENERATIONS"
+echo "══════════════════════════════════════════════════════════════"
+echo ""
+
+CURRENT_GEN=$(readlink /nix/var/nix/profiles/system | grep -oE "[0-9]+" | tail -1)
+
+for gen_path in /nix/var/nix/profiles/system-*-link; do
+    [ -e "$gen_path" ] || continue
+    
+    GEN_NUM=$(basename "$gen_path" | grep -oE "[0-9]+" | head -1)
+    GEN_DATE=$(stat -c %y "$gen_path" 2>/dev/null | cut -d. -f1)
+    
+    # Get NixOS version from the generation
+    if [ -f "$gen_path/nixos-version" ]; then
+        VERSION=$(cat "$gen_path/nixos-version")
+    else
+        VERSION="unknown"
+    fi
+    
+    # Get kernel version
+    KERNEL_PATH=$(ls -d "$gen_path/kernel" 2>/dev/null || ls "$gen_path/kernel" 2>/dev/null || echo "")
+    if [ -n "$KERNEL_PATH" ] && [ -L "$gen_path/kernel" ]; then
+        KERNEL=$(readlink "$gen_path/kernel" | grep -oE "[0-9]+\.[0-9]+\.[0-9]+" | head -1 || echo "unknown")
+    else
+        KERNEL="unknown"
+    fi
+    
+    # Check if current
+    if [ "$GEN_NUM" = "$CURRENT_GEN" ]; then
+        MARKER="→ "
+        CURRENT_TAG=" (current)"
+    else
+        MARKER="  "
+        CURRENT_TAG=""
+    fi
+    
+    echo "${MARKER}Generation $GEN_NUM$CURRENT_TAG"
+    echo "    Date:    $GEN_DATE"
+    echo "    NixOS:   $VERSION"
+    echo "    Kernel:  $KERNEL"
+    echo ""
+done | tac | tac
+'''
+        self.run_command(cmd, "nixos-output", "NixOS Generations")
     
     @on(Button.Pressed, "#btn-nix-machines")
     def nix_machines(self) -> None:
