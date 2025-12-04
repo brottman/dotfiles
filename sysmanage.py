@@ -93,35 +93,79 @@ Screen {
     height: 3;
     width: 100%;
     background: #1a1b26;
-    padding: 0 2;
+    padding: 0 1;
     align: left middle;
 }
 
 .tab {
-    min-width: 16;
+    width: auto;
+    min-width: 12;
     height: 3;
     margin: 0;
-    padding: 0 2;
+    padding: 0 1;
     border: none;
-    background: transparent;
+    background: #1a1b26;
     color: #565f89;
     text-style: none;
 }
 
 .tab:hover {
     color: #a9b1d6;
-    background: transparent;
+    background: #1a1b26;
+    text-style: none;
+    border: none;
 }
 
 .tab:focus {
     text-style: none;
+    background: #1a1b26;
+    border: none;
+}
+
+.tab.-active {
+    text-style: none;
+    background: #1a1b26;
+    border: none;
 }
 
 .tab.active {
-    color: #c0caf5;
-    text-style: bold;
-    background: #0f0f14;
-    border-top: tall #7aa2f7;
+    color: #7aa2f7;
+    text-style: none;
+    background: #1a1b26;
+    border: none;
+}
+
+.tab.active:hover {
+    color: #7aa2f7;
+    text-style: none;
+    background: #1a1b26;
+    border: none;
+}
+
+.tab.active:focus {
+    color: #7aa2f7;
+    text-style: none;
+    background: #1a1b26;
+    border: none;
+}
+
+.tab:disabled {
+    text-style: none;
+    background: #1a1b26;
+    border: none;
+}
+
+.tab.-pressed {
+    text-style: none;
+    background: #1a1b26;
+    border: none;
+}
+
+.tab.active.-pressed {
+    color: #7aa2f7;
+    text-style: none;
+    background: #1a1b26;
+    border: none;
 }
 
 /* Content wrapper */
@@ -188,6 +232,10 @@ Screen {
 
 #sidebar .cmd-danger:hover {
     background: #ff9e9e;
+}
+
+#sidebar Button:focus {
+    text-style: bold reverse;
 }
 
 .sidebar-section {
@@ -355,16 +403,27 @@ class SysManage(App):
     BINDINGS = [
         Binding("q", "quit", "Quit", show=True),
         Binding("escape", "quit", "Quit", show=False),
-        Binding("1", "show_system", "System", show=True),
-        Binding("2", "show_nixos", "NixOS", show=True),
-        Binding("3", "show_docker", "Docker", show=True),
-        Binding("4", "show_logs", "Logs", show=True),
+        Binding("1", "show_system", "1", show=False),
+        Binding("2", "show_nixos", "2", show=False),
+        Binding("3", "show_docker", "3", show=False),
+        Binding("4", "show_logs", "4", show=False),
+        Binding("5", "show_git", "5", show=False),
+        Binding("6", "show_network", "6", show=False),
+        Binding("7", "show_services", "7", show=False),
+        Binding("8", "show_storage", "8", show=False),
+        Binding("left", "prev_tab", "←", show=True),
+        Binding("right", "next_tab", "→", show=True),
+        Binding("up", "prev_cmd", "↑", show=False),
+        Binding("down", "next_cmd", "↓", show=False),
+        Binding("enter", "run_focused", "Run", show=False),
         Binding("r", "refresh", "Refresh", show=True),
         Binding("c", "cancel_command", "Cancel", show=True),
     ]
     
     current_section = reactive("system")
     running_process: Optional[asyncio.subprocess.Process] = None
+    
+    TABS = ["system", "nixos", "docker", "logs", "git", "network", "services", "storage"]
     
     def compose(self) -> ComposeResult:
         yield Header()
@@ -376,6 +435,10 @@ class SysManage(App):
                 yield Button("❄️ NixOS", id="tab-nixos", classes="tab")
                 yield Button("🐳 Docker", id="tab-docker", classes="tab")
                 yield Button("📜 Logs", id="tab-logs", classes="tab")
+                yield Button("📂 Git", id="tab-git", classes="tab")
+                yield Button("🌐 Network", id="tab-network", classes="tab")
+                yield Button("⚙️ Services", id="tab-services", classes="tab")
+                yield Button("💾 Storage", id="tab-storage", classes="tab")
             
             # Content area with sidebar and output
             with Horizontal(id="content-wrapper"):
@@ -403,6 +466,9 @@ class SysManage(App):
                         yield Button("Build", id="btn-nix-build", classes="cmd-info")
                         yield Button("Boot", id="btn-nix-boot", classes="cmd-warning")
                         yield Label("─" * 18, classes="section-label")
+                        yield Button("Generations", id="btn-nix-generations", classes="cmd-info")
+                        yield Button("Machines", id="btn-nix-machines", classes="cmd-info")
+                        yield Label("─" * 18, classes="section-label")
                         yield Button("Update Flake", id="btn-nix-update", classes="cmd-info")
                         yield Button("Garbage Collect", id="btn-nix-gc", classes="cmd-warning")
                         yield Button("Optimise Store", id="btn-nix-optimise", classes="cmd-info")
@@ -428,6 +494,47 @@ class SysManage(App):
                         yield Button("SSH", id="btn-log-sshd", classes="cmd-info")
                         yield Button("Tailscale", id="btn-log-tailscale", classes="cmd-info")
                         yield Button("Boot", id="btn-log-boot", classes="cmd-info")
+                    
+                    # Git commands
+                    with Vertical(id="sidebar-git", classes="sidebar-section"):
+                        yield Button("Status", id="btn-git-status", classes="cmd-info")
+                        yield Button("Log", id="btn-git-log", classes="cmd-info")
+                        yield Button("Diff", id="btn-git-diff", classes="cmd-info")
+                        yield Button("Branches", id="btn-git-branches", classes="cmd-info")
+                        yield Label("─" * 18, classes="section-label")
+                        yield Button("Pull", id="btn-git-pull", classes="cmd-success")
+                        yield Button("Push", id="btn-git-push", classes="cmd-warning")
+                        yield Button("Fetch", id="btn-git-fetch", classes="cmd-info")
+                    
+                    # Network commands
+                    with Vertical(id="sidebar-network", classes="sidebar-section"):
+                        yield Button("Interfaces", id="btn-net-interfaces", classes="cmd-info")
+                        yield Button("Connections", id="btn-net-connections", classes="cmd-info")
+                        yield Button("Ports", id="btn-net-ports", classes="cmd-info")
+                        yield Button("DNS", id="btn-net-dns", classes="cmd-info")
+                        yield Label("─" * 18, classes="section-label")
+                        yield Button("Ping Google", id="btn-net-ping", classes="cmd-info")
+                        yield Button("Speedtest", id="btn-net-speedtest", classes="cmd-warning")
+                        yield Button("Tailscale", id="btn-net-tailscale", classes="cmd-info")
+                    
+                    # Services commands
+                    with Vertical(id="sidebar-services", classes="sidebar-section"):
+                        yield Button("Running", id="btn-svc-running", classes="cmd-info")
+                        yield Button("Failed", id="btn-svc-failed", classes="cmd-danger")
+                        yield Button("All", id="btn-svc-all", classes="cmd-info")
+                        yield Button("Timers", id="btn-svc-timers", classes="cmd-info")
+                        yield Label("─" * 18, classes="section-label")
+                        yield Button("Reload Daemon", id="btn-svc-reload", classes="cmd-warning")
+                    
+                    # Storage commands
+                    with Vertical(id="sidebar-storage", classes="sidebar-section"):
+                        yield Button("Disk Usage", id="btn-stor-df", classes="cmd-info")
+                        yield Button("Block Devices", id="btn-stor-lsblk", classes="cmd-info")
+                        yield Button("Mounts", id="btn-stor-mounts", classes="cmd-info")
+                        yield Button("SMART Health", id="btn-stor-smart", classes="cmd-info")
+                        yield Label("─" * 18, classes="section-label")
+                        yield Button("Largest Dirs", id="btn-stor-du", classes="cmd-info")
+                        yield Button("Nix Store", id="btn-stor-nix", classes="cmd-info")
                 
                 # Main output area
                 with Vertical(id="output-area"):
@@ -447,6 +554,22 @@ class SysManage(App):
                     # Logs output
                     with Vertical(id="output-logs", classes="output-panel"):
                         yield RichLog(id="log-output", highlight=True, markup=True, max_lines=2000)
+                    
+                    # Git output
+                    with Vertical(id="output-git", classes="output-panel"):
+                        yield RichLog(id="git-output", highlight=True, markup=True)
+                    
+                    # Network output
+                    with Vertical(id="output-network", classes="output-panel"):
+                        yield RichLog(id="network-output", highlight=True, markup=True)
+                    
+                    # Services output
+                    with Vertical(id="output-services", classes="output-panel"):
+                        yield RichLog(id="services-output", highlight=True, markup=True)
+                    
+                    # Storage output
+                    with Vertical(id="output-storage", classes="output-panel"):
+                        yield RichLog(id="storage-output", highlight=True, markup=True)
         
         yield Footer()
     
@@ -501,17 +624,123 @@ class SysManage(App):
     def tab_logs(self) -> None:
         self.current_section = "logs"
     
+    @on(Button.Pressed, "#tab-git")
+    def tab_git(self) -> None:
+        self.current_section = "git"
+    
+    @on(Button.Pressed, "#tab-network")
+    def tab_network(self) -> None:
+        self.current_section = "network"
+    
+    @on(Button.Pressed, "#tab-services")
+    def tab_services(self) -> None:
+        self.current_section = "services"
+    
+    @on(Button.Pressed, "#tab-storage")
+    def tab_storage(self) -> None:
+        self.current_section = "storage"
+    
     def action_show_system(self) -> None:
         self.current_section = "system"
+        self._focus_first_command()
     
     def action_show_nixos(self) -> None:
         self.current_section = "nixos"
+        self._focus_first_command()
     
     def action_show_docker(self) -> None:
         self.current_section = "docker"
+        self._focus_first_command()
     
     def action_show_logs(self) -> None:
         self.current_section = "logs"
+        self._focus_first_command()
+    
+    def action_show_git(self) -> None:
+        self.current_section = "git"
+        self._focus_first_command()
+    
+    def action_show_network(self) -> None:
+        self.current_section = "network"
+        self._focus_first_command()
+    
+    def action_show_services(self) -> None:
+        self.current_section = "services"
+        self._focus_first_command()
+    
+    def action_show_storage(self) -> None:
+        self.current_section = "storage"
+        self._focus_first_command()
+    
+    def action_prev_tab(self) -> None:
+        """Move to previous tab."""
+        try:
+            idx = self.TABS.index(self.current_section)
+            new_idx = (idx - 1) % len(self.TABS)
+            self.current_section = self.TABS[new_idx]
+            self._focus_first_command()
+        except ValueError:
+            pass
+    
+    def action_next_tab(self) -> None:
+        """Move to next tab."""
+        try:
+            idx = self.TABS.index(self.current_section)
+            new_idx = (idx + 1) % len(self.TABS)
+            self.current_section = self.TABS[new_idx]
+            self._focus_first_command()
+        except ValueError:
+            pass
+    
+    def _get_sidebar_buttons(self) -> list:
+        """Get all buttons in the current sidebar section."""
+        try:
+            sidebar = self.query_one(f"#sidebar-{self.current_section}")
+            return [b for b in sidebar.query("Button")]
+        except Exception:
+            return []
+    
+    def _focus_first_command(self) -> None:
+        """Focus the first command button in current section."""
+        buttons = self._get_sidebar_buttons()
+        if buttons:
+            buttons[0].focus()
+    
+    def action_prev_cmd(self) -> None:
+        """Move focus to previous command."""
+        buttons = self._get_sidebar_buttons()
+        if not buttons:
+            return
+        
+        # Find currently focused button
+        focused = self.focused
+        try:
+            idx = buttons.index(focused)
+            new_idx = (idx - 1) % len(buttons)
+            buttons[new_idx].focus()
+        except (ValueError, IndexError):
+            buttons[-1].focus()
+    
+    def action_next_cmd(self) -> None:
+        """Move focus to next command."""
+        buttons = self._get_sidebar_buttons()
+        if not buttons:
+            return
+        
+        # Find currently focused button
+        focused = self.focused
+        try:
+            idx = buttons.index(focused)
+            new_idx = (idx + 1) % len(buttons)
+            buttons[new_idx].focus()
+        except (ValueError, IndexError):
+            buttons[0].focus()
+    
+    def action_run_focused(self) -> None:
+        """Run the currently focused command."""
+        focused = self.focused
+        if isinstance(focused, Button):
+            focused.press()
     
     def action_refresh(self) -> None:
         """Refresh current section."""
@@ -729,6 +958,15 @@ systemctl list-units --state=failed --no-legend | head -5 || echo "None"
     @on(Button.Pressed, "#btn-nix-optimise")
     def nix_optimise(self) -> None:
         self.run_command(NIXOS_COMMANDS["optimise"], "nixos-output", "Optimise Nix Store")
+    
+    @on(Button.Pressed, "#btn-nix-generations")
+    def nix_generations(self) -> None:
+        self.run_command("sudo nix-env --list-generations --profile /nix/var/nix/profiles/system", "nixos-output", "NixOS Generations")
+    
+    @on(Button.Pressed, "#btn-nix-machines")
+    def nix_machines(self) -> None:
+        cmd = f"cd {DOTFILES_PATH} && nix flake show --json 2>/dev/null | python3 -c \"import sys,json; d=json.load(sys.stdin); print('Machines in flake:'); print(); [print(f'  • {{k}}') for k in d.get('nixosConfigurations',{{}}).keys()]\""
+        self.run_command(cmd, "nixos-output", "Flake Machines")
     
     # ========================================================================
     # Docker Management
@@ -983,6 +1221,122 @@ systemctl list-units --type=service --state=running | head -20
             ConfirmDialog("Shutdown System", "⚠️ Are you sure you want to shut down?")
         ):
             self.run_command("sudo systemctl poweroff", "system-output", "Shutting down...")
+    
+    # ========================================================================
+    # Git Commands
+    # ========================================================================
+    
+    @on(Button.Pressed, "#btn-git-status")
+    def git_status(self) -> None:
+        self.run_command(f"cd {DOTFILES_PATH} && git status", "git-output", "Git Status")
+    
+    @on(Button.Pressed, "#btn-git-log")
+    def git_log(self) -> None:
+        self.run_command(f"cd {DOTFILES_PATH} && git log --oneline --graph -20", "git-output", "Git Log")
+    
+    @on(Button.Pressed, "#btn-git-diff")
+    def git_diff(self) -> None:
+        self.run_command(f"cd {DOTFILES_PATH} && git diff", "git-output", "Git Diff")
+    
+    @on(Button.Pressed, "#btn-git-branches")
+    def git_branches(self) -> None:
+        self.run_command(f"cd {DOTFILES_PATH} && git branch -a", "git-output", "Git Branches")
+    
+    @on(Button.Pressed, "#btn-git-pull")
+    def git_pull(self) -> None:
+        self.run_command(f"cd {DOTFILES_PATH} && git pull", "git-output", "Git Pull")
+    
+    @on(Button.Pressed, "#btn-git-push")
+    def git_push(self) -> None:
+        self.run_command(f"cd {DOTFILES_PATH} && git push", "git-output", "Git Push")
+    
+    @on(Button.Pressed, "#btn-git-fetch")
+    def git_fetch(self) -> None:
+        self.run_command(f"cd {DOTFILES_PATH} && git fetch --all", "git-output", "Git Fetch")
+    
+    # ========================================================================
+    # Network Commands
+    # ========================================================================
+    
+    @on(Button.Pressed, "#btn-net-interfaces")
+    def net_interfaces(self) -> None:
+        self.run_command("ip -c addr", "network-output", "Network Interfaces")
+    
+    @on(Button.Pressed, "#btn-net-connections")
+    def net_connections(self) -> None:
+        self.run_command("ss -tunapl 2>/dev/null | head -50", "network-output", "Active Connections")
+    
+    @on(Button.Pressed, "#btn-net-ports")
+    def net_ports(self) -> None:
+        self.run_command("ss -tlnp", "network-output", "Listening Ports")
+    
+    @on(Button.Pressed, "#btn-net-dns")
+    def net_dns(self) -> None:
+        self.run_command("cat /etc/resolv.conf && echo '' && resolvectl status 2>/dev/null | head -30", "network-output", "DNS Configuration")
+    
+    @on(Button.Pressed, "#btn-net-ping")
+    def net_ping(self) -> None:
+        self.run_command("ping -c 5 8.8.8.8 && ping -c 5 google.com", "network-output", "Ping Test")
+    
+    @on(Button.Pressed, "#btn-net-speedtest")
+    def net_speedtest(self) -> None:
+        self.run_command("speedtest-cli --simple", "network-output", "Speed Test")
+    
+    @on(Button.Pressed, "#btn-net-tailscale")
+    def net_tailscale(self) -> None:
+        self.run_command("tailscale status && echo '' && tailscale ip", "network-output", "Tailscale Status")
+    
+    # ========================================================================
+    # Services Commands
+    # ========================================================================
+    
+    @on(Button.Pressed, "#btn-svc-running")
+    def svc_running(self) -> None:
+        self.run_command("systemctl list-units --type=service --state=running", "services-output", "Running Services")
+    
+    @on(Button.Pressed, "#btn-svc-failed")
+    def svc_failed(self) -> None:
+        self.run_command("systemctl list-units --state=failed", "services-output", "Failed Services")
+    
+    @on(Button.Pressed, "#btn-svc-all")
+    def svc_all(self) -> None:
+        self.run_command("systemctl list-units --type=service", "services-output", "All Services")
+    
+    @on(Button.Pressed, "#btn-svc-timers")
+    def svc_timers(self) -> None:
+        self.run_command("systemctl list-timers --all", "services-output", "Timers")
+    
+    @on(Button.Pressed, "#btn-svc-reload")
+    def svc_reload(self) -> None:
+        self.run_command("sudo systemctl daemon-reload", "services-output", "Daemon Reload")
+    
+    # ========================================================================
+    # Storage Commands
+    # ========================================================================
+    
+    @on(Button.Pressed, "#btn-stor-df")
+    def stor_df(self) -> None:
+        self.run_command("df -h", "storage-output", "Disk Usage")
+    
+    @on(Button.Pressed, "#btn-stor-lsblk")
+    def stor_lsblk(self) -> None:
+        self.run_command("lsblk -o NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT,LABEL", "storage-output", "Block Devices")
+    
+    @on(Button.Pressed, "#btn-stor-mounts")
+    def stor_mounts(self) -> None:
+        self.run_command("findmnt -t notmpfs,nosquashfs,nodevtmpfs", "storage-output", "Mount Points")
+    
+    @on(Button.Pressed, "#btn-stor-smart")
+    def stor_smart(self) -> None:
+        self.run_command("sudo smartctl -H /dev/sda 2>/dev/null || echo 'SMART not available'; lsblk -d -o NAME,MODEL,SIZE", "storage-output", "SMART Health")
+    
+    @on(Button.Pressed, "#btn-stor-du")
+    def stor_du(self) -> None:
+        self.run_command("du -sh /home/* 2>/dev/null | sort -rh | head -15", "storage-output", "Largest Directories")
+    
+    @on(Button.Pressed, "#btn-stor-nix")
+    def stor_nix(self) -> None:
+        self.run_command("du -sh /nix/store && nix-store --gc --print-dead 2>/dev/null | wc -l | xargs -I{} echo 'Dead paths: {}'", "storage-output", "Nix Store")
 
 
 # ============================================================================
