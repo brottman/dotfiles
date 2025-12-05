@@ -447,6 +447,8 @@ class SysManage(App):
     
     current_section = reactive("system")
     running_process: Optional[asyncio.subprocess.Process] = None
+    spinner_task: Optional[asyncio.Task] = None
+    is_running = reactive(False)
     
     TABS = ["system", "nixos", "docker", "logs", "git", "network", "services", "storage"]
     
@@ -921,10 +923,30 @@ class SysManage(App):
         log = self.query_one(f"#{output_id}", RichLog)
         log.clear()
         
+        # Store original subtitle
+        original_subtitle = self.sub_title
+        display_title = title if title else "Command"
+        
         if title:
             log.write(Text(f"▶ {title}", style="bold cyan"))
             log.write(Text(f"$ {command}", style="dim"))
             log.write("")
+        
+        # Start spinner animation
+        spinner_frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+        self.is_running = True
+        status_line_id = f"status-{output_id}"
+        
+        async def update_spinner():
+            """Update spinner animation while command is running."""
+            frame = 0
+            while self.is_running:
+                spinner_char = spinner_frames[frame]
+                status_text = f"{spinner_char} Running: {display_title}..."
+                # Update subtitle in header (appears below title at top of screen)
+                self.sub_title = status_text
+                frame = (frame + 1) % len(spinner_frames)
+                await asyncio.sleep(0.15)
         
         try:
             self.running_process = await asyncio.create_subprocess_shell(
@@ -932,6 +954,9 @@ class SysManage(App):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
             )
+            
+            # Start spinner animation task after process is created
+            self.spinner_task = asyncio.create_task(update_spinner())
             
             while True:
                 line = await self.running_process.stdout.readline()
@@ -968,6 +993,18 @@ class SysManage(App):
         except Exception as e:
             log.write(Text(f"\n✗ Error: {e}", style="bold red"))
         finally:
+            # Stop spinner animation
+            self.is_running = False
+            if self.spinner_task:
+                self.spinner_task.cancel()
+                try:
+                    await self.spinner_task
+                except asyncio.CancelledError:
+                    pass
+                self.spinner_task = None
+            
+            # Restore original subtitle
+            self.sub_title = original_subtitle
             self.running_process = None
     
     # ========================================================================
