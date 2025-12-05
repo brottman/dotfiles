@@ -75,23 +75,24 @@
   # Local mail service with Gmail relay
   services.postfix = {
     enable = true;
-    # Use new settings format for relayhost (replaces deprecated relayHost and relayPort)
-    settings.main.relayhost = [ "smtp.gmail.com:587" ];
-    origin = "superheavy";
-    hostname = "superheavy";
-    domain = "brottman.local";
-    networks = [ "127.0.0.0/8" "10.0.0.0/8" "192.168.0.0/16" ];
-    
-    # Additional Postfix configuration for Gmail relay
-    config = {
-      smtp_use_tls = "yes";
-      smtp_sasl_auth_enable = "yes";
-      smtp_sasl_security_options = "noanonymous";
-      smtp_sasl_password_maps = "hash:/var/lib/postfix/gmail_password";
-      smtp_tls_CAfile = "${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt";
-      inet_protocols = "ipv4";
-      sender_canonical_maps = "regexp:/var/lib/postfix/sender_canonical";
-      sender_canonical_classes = "envelope_sender, header_sender";
+    # Use new settings format (migrated from deprecated options)
+    settings = {
+      main = {
+        relayhost = [ "smtp.gmail.com:587" ];
+        myorigin = "superheavy";
+        myhostname = "superheavy";
+        mydomain = "brottman.local";
+        mynetworks = [ "127.0.0.0/8" "10.0.0.0/8" "192.168.0.0/16" ];
+        # Additional Postfix configuration for Gmail relay
+        smtp_use_tls = "yes";
+        smtp_sasl_auth_enable = "yes";
+        smtp_sasl_security_options = "noanonymous";
+        smtp_sasl_password_maps = "hash:/var/lib/postfix/gmail_password";
+        smtp_tls_CAfile = "${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt";
+        inet_protocols = "ipv4";
+        sender_canonical_maps = "regexp:/var/lib/postfix/sender_canonical";
+        sender_canonical_classes = "envelope_sender, header_sender";
+      };
     };
   };
 
