@@ -177,8 +177,9 @@ Screen {
 #sidebar {
     width: 22;
     background: #16161e;
-    border-right: tall #292e42;
+    border-right: wide #292e42;
     padding: 1;
+    padding-right: 0;
 }
 
 #sidebar-title {
@@ -253,15 +254,21 @@ Screen {
     text-align: center;
 }
 
-/* Main output area */
+/* Content wrapper with clear separation */
+#content-wrapper {
+    overflow: hidden;
+}
+
+/* Main output area - better isolated for text selection */
 #output-area {
     width: 1fr;
     height: 100%;
     padding: 1;
+    padding-left: 1;
     background: #0f0f14;
 }
 
-/* RichLog output panels */
+/* RichLog output panels - enable text selection */
 RichLog {
     height: 1fr;
     border: round #292e42;
@@ -271,6 +278,7 @@ RichLog {
     scrollbar-color: #3d59a1;
     scrollbar-color-hover: #7aa2f7;
     scrollbar-color-active: #7aa2f7;
+    /* Text selection is handled by the terminal - use Ctrl+C to copy all output */
 }
 
 .output-panel {
@@ -308,7 +316,7 @@ ConfirmDialog {
 }
 
 #confirm-container {
-    width: 50;
+    width: 60;
     height: auto;
     background: #16161e;
     border: round #f7768e;
@@ -321,12 +329,15 @@ ConfirmDialog {
     text-align: center;
     padding-bottom: 1;
     border-bottom: solid #292e42;
+    width: 100%;
 }
 
 #confirm-message {
     padding: 1 0;
     text-align: center;
     color: #c0caf5;
+    width: 1fr;
+    text-wrap: wrap;
 }
 
 #confirm-buttons {
@@ -376,7 +387,7 @@ class ConfirmDialog(ModalScreen[bool]):
     def compose(self) -> ComposeResult:
         with Vertical(id="confirm-container"):
             yield Label(self.dialog_title, id="confirm-title")
-            yield Label(self.message, id="confirm-message")
+            yield Label(self.message, id="confirm-message", shrink=True)
             with Horizontal(id="confirm-buttons"):
                 yield Button("Cancel", variant="default", id="cancel")
                 yield Button("Confirm", variant="error", id="confirm")
@@ -1448,7 +1459,7 @@ systemctl list-units --type=service --state=running | head -20
     @work
     async def sys_reboot(self) -> None:
         if await self.push_screen_wait(
-            ConfirmDialog("Reboot System", "⚠️ Are you sure you want to reboot?")
+            ConfirmDialog("Reboot System", "Are you sure you want to reboot?")
         ):
             self.run_command("sudo systemctl reboot", "system-output", "Rebooting...")
     
@@ -1456,7 +1467,7 @@ systemctl list-units --type=service --state=running | head -20
     @work
     async def sys_shutdown(self) -> None:
         if await self.push_screen_wait(
-            ConfirmDialog("Shutdown System", "⚠️ Are you sure you want to shut down?")
+            ConfirmDialog("Shutdown System", "Are you sure you want to shut down?")
         ):
             self.run_command("sudo systemctl poweroff", "system-output", "Shutting down...")
     
