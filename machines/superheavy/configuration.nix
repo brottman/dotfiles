@@ -75,8 +75,8 @@
   # Local mail service with Gmail relay
   services.postfix = {
     enable = true;
-    relayHost = "smtp.gmail.com";
-    relayPort = 587;
+    # Use new settings format for relayhost (replaces deprecated relayHost and relayPort)
+    settings.main.relayhost = [ "smtp.gmail.com:587" ];
     origin = "superheavy";
     hostname = "superheavy";
     domain = "brottman.local";
