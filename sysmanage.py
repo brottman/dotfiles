@@ -1109,12 +1109,29 @@ for machine in brian-laptop superheavy backup docker; do
         echo "│  Last Switch: $LAST_CHANGE"
         echo "│  Uptime:      $UPTIME"
     else
-        if ssh -o ConnectTimeout=3 -o BatchMode=yes "$machine" echo ok >/dev/null 2>&1; then
-            VERSION=$(ssh -o ConnectTimeout=5 "$machine" nixos-version 2>/dev/null || echo "unknown")
-            KERNEL=$(ssh -o ConnectTimeout=5 "$machine" uname -r 2>/dev/null || echo "unknown")
-            UPTIME=$(ssh -o ConnectTimeout=5 "$machine" uptime -p 2>/dev/null || echo "unknown")
-            LAST_CHANGE=$(ssh -o ConnectTimeout=5 "$machine" 'stat -c %y /run/current-system 2>/dev/null | cut -d. -f1' || echo "unknown")
-            GEN=$(ssh -o ConnectTimeout=5 "$machine" 'readlink /nix/var/nix/profiles/system | grep -oE "[0-9]+" | tail -1' 2>/dev/null || echo "?")
+        # Try multiple connection methods with fallback
+        REACHABLE=false
+        MACHINE_TARGET="$machine"
+        
+        # Method 1: Try hostname first (works if DNS/MagicDNS is configured)
+        if ssh -o ConnectTimeout=3 -o BatchMode=yes -o StrictHostKeyChecking=no "$machine" echo ok >/dev/null 2>&1; then
+            REACHABLE=true
+            MACHINE_TARGET="$machine"
+        # Method 2: Try Tailscale IP if available
+        elif command -v tailscale &>/dev/null; then
+            TS_IP=$(tailscale ip -4 "$machine" 2>/dev/null | head -1)
+            if [ -n "$TS_IP" ] && ssh -o ConnectTimeout=3 -o BatchMode=yes -o StrictHostKeyChecking=no "$TS_IP" echo ok >/dev/null 2>&1; then
+                REACHABLE=true
+                MACHINE_TARGET="$TS_IP"
+            fi
+        fi
+        
+        if [ "$REACHABLE" = true ]; then
+            VERSION=$(ssh -o ConnectTimeout=5 -o BatchMode=yes -o StrictHostKeyChecking=no "$MACHINE_TARGET" nixos-version 2>/dev/null || echo "unknown")
+            KERNEL=$(ssh -o ConnectTimeout=5 -o BatchMode=yes -o StrictHostKeyChecking=no "$MACHINE_TARGET" uname -r 2>/dev/null || echo "unknown")
+            UPTIME=$(ssh -o ConnectTimeout=5 -o BatchMode=yes -o StrictHostKeyChecking=no "$MACHINE_TARGET" uptime -p 2>/dev/null || echo "unknown")
+            LAST_CHANGE=$(ssh -o ConnectTimeout=5 -o BatchMode=yes -o StrictHostKeyChecking=no "$MACHINE_TARGET" 'stat -c %y /run/current-system 2>/dev/null | cut -d. -f1' || echo "unknown")
+            GEN=$(ssh -o ConnectTimeout=5 -o BatchMode=yes -o StrictHostKeyChecking=no "$MACHINE_TARGET" 'readlink /nix/var/nix/profiles/system | grep -oE "[0-9]+" | tail -1' 2>/dev/null || echo "?")
             
             echo "│  Status:      ✓ Online"
             echo "│  NixOS:       $VERSION"
