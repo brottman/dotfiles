@@ -1111,27 +1111,70 @@ for machine in brian-laptop superheavy backup docker; do
     else
         # Try multiple connection methods with fallback
         REACHABLE=false
-        MACHINE_TARGET="$machine"
+        SSH_AUTH_OK=false
+        MACHINE_TARGET=""
+        SSH_OPTS="-o ConnectTimeout=5 -o StrictHostKeyChecking=no -o BatchMode=yes"
         
-        # Method 1: Try hostname first (works if DNS/MagicDNS is configured)
-        if ssh -o ConnectTimeout=3 -o BatchMode=yes -o StrictHostKeyChecking=no "$machine" echo ok >/dev/null 2>&1; then
-            REACHABLE=true
-            MACHINE_TARGET="$machine"
-        # Method 2: Try Tailscale IP if available
-        elif command -v tailscale &>/dev/null; then
-            TS_IP=$(tailscale ip -4 "$machine" 2>/dev/null | head -1)
-            if [ -n "$TS_IP" ] && ssh -o ConnectTimeout=3 -o BatchMode=yes -o StrictHostKeyChecking=no "$TS_IP" echo ok >/dev/null 2>&1; then
-                REACHABLE=true
-                MACHINE_TARGET="$TS_IP"
+        # First, find the machine's IP address via multiple methods
+        MACHINE_IP=""
+        HOSTNAME_REACHABLE=false
+        
+        # Check if hostname is reachable via ping (like health check)
+        if ping -c 1 -W 2 "$machine" &>/dev/null 2>&1; then
+            HOSTNAME_REACHABLE=true
+        fi
+        
+        # Method 1: Try to get Tailscale IP
+        if command -v tailscale &>/dev/null; then
+            MACHINE_IP=$(tailscale ip -4 "$machine" 2>/dev/null | head -1)
+        fi
+        
+        # Method 2: Try hostname resolution
+        if [ -z "$MACHINE_IP" ]; then
+            RESOLVED=$(getent hosts "$machine" 2>/dev/null | awk '{print $1}' | head -1)
+            if [ -n "$RESOLVED" ]; then
+                MACHINE_IP="$RESOLVED"
             fi
         fi
         
-        if [ "$REACHABLE" = true ]; then
-            VERSION=$(ssh -o ConnectTimeout=5 -o BatchMode=yes -o StrictHostKeyChecking=no "$MACHINE_TARGET" nixos-version 2>/dev/null || echo "unknown")
-            KERNEL=$(ssh -o ConnectTimeout=5 -o BatchMode=yes -o StrictHostKeyChecking=no "$MACHINE_TARGET" uname -r 2>/dev/null || echo "unknown")
-            UPTIME=$(ssh -o ConnectTimeout=5 -o BatchMode=yes -o StrictHostKeyChecking=no "$MACHINE_TARGET" uptime -p 2>/dev/null || echo "unknown")
-            LAST_CHANGE=$(ssh -o ConnectTimeout=5 -o BatchMode=yes -o StrictHostKeyChecking=no "$MACHINE_TARGET" 'stat -c %y /run/current-system 2>/dev/null | cut -d. -f1' || echo "unknown")
-            GEN=$(ssh -o ConnectTimeout=5 -o BatchMode=yes -o StrictHostKeyChecking=no "$MACHINE_TARGET" 'readlink /nix/var/nix/profiles/system | grep -oE "[0-9]+" | tail -1' 2>/dev/null || echo "?")
+        # Check if SSH port is reachable (like health check does)
+        PORT_REACHABLE=false
+        if [ -n "$MACHINE_IP" ]; then
+            if timeout 2 bash -c "echo > /dev/tcp/$MACHINE_IP/22" 2>/dev/null; then
+                PORT_REACHABLE=true
+            fi
+        fi
+        
+        # Now try SSH authentication with different targets
+        # Try hostname first if ping works (even if we don't have IP yet)
+        if [ "$HOSTNAME_REACHABLE" = true ] || [ "$PORT_REACHABLE" = true ] || [ -n "$MACHINE_IP" ]; then
+            # Build list of targets to try, prioritizing hostname if ping works
+            TARGETS=()
+            if [ "$HOSTNAME_REACHABLE" = true ]; then
+                TARGETS+=("brian@$machine" "$machine")
+            fi
+            if [ -n "$MACHINE_IP" ]; then
+                TARGETS+=("brian@$MACHINE_IP" "$MACHINE_IP")
+            fi
+            
+            # Try each target
+            for target in "${TARGETS[@]}"; do
+                if ssh $SSH_OPTS "$target" echo ok >/dev/null 2>&1; then
+                    REACHABLE=true
+                    SSH_AUTH_OK=true
+                    MACHINE_TARGET="$target"
+                    break
+                fi
+            done
+        fi
+        
+        if [ "$SSH_AUTH_OK" = true ]; then
+            # SSH authentication successful - get system info
+            VERSION=$(ssh $SSH_OPTS "$MACHINE_TARGET" nixos-version 2>/dev/null || echo "unknown")
+            KERNEL=$(ssh $SSH_OPTS "$MACHINE_TARGET" uname -r 2>/dev/null || echo "unknown")
+            UPTIME=$(ssh $SSH_OPTS "$MACHINE_TARGET" uptime -p 2>/dev/null || echo "unknown")
+            LAST_CHANGE=$(ssh $SSH_OPTS "$MACHINE_TARGET" 'stat -c %y /run/current-system 2>/dev/null | cut -d. -f1' || echo "unknown")
+            GEN=$(ssh $SSH_OPTS "$MACHINE_TARGET" 'readlink /nix/var/nix/profiles/system | grep -oE "[0-9]+" | tail -1' 2>/dev/null || echo "?")
             
             echo "│  Status:      ✓ Online"
             echo "│  NixOS:       $VERSION"
@@ -1139,8 +1182,22 @@ for machine in brian-laptop superheavy backup docker; do
             echo "│  Generation:  $GEN"
             echo "│  Last Switch: $LAST_CHANGE"
             echo "│  Uptime:      $UPTIME"
+        elif [ "$HOSTNAME_REACHABLE" = true ] || [ "$PORT_REACHABLE" = true ]; then
+            # Machine is reachable but SSH auth failed
+            echo "│  Status:      ⚠ Reachable but SSH auth failed"
+            echo "│  Note:        Machine is online but SSH keys not configured"
+            if [ "$HOSTNAME_REACHABLE" = true ]; then
+                echo "│  Network:     Hostname ping works"
+            fi
+            if [ -n "$MACHINE_IP" ]; then
+                echo "│  IP:          $MACHINE_IP"
+            fi
         else
+            # Can't reach machine at all
             echo "│  Status:      ✗ Offline or unreachable"
+            if [ -n "$MACHINE_IP" ]; then
+                echo "│  IP:          $MACHINE_IP (but SSH port not reachable)"
+            fi
         fi
     fi
     echo "└─────────────────────────────────────────────────────────────"
