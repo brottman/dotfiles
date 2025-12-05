@@ -16,12 +16,12 @@
 
   # File systems - REPLACE UUIDs with actual device UUIDs from `nixos-generate-config`
   fileSystems."/" = {
-    device = "/dev/disk/by-uuid/969e6a51-538b-4b7e-bafa-d2273b89c605";
+    device = "/dev/disk/by-uuid/cb4c4d04-adcd-41d5-b0c8-e6f72212512d";
     fsType = "ext4";
   };
 
   fileSystems."/boot" = {
-    device = "/dev/disk/by-uuid/25DD-18B1";
+    device = "/dev/disk/by-uuid/48E3-7533";
     fsType = "vfat";
     options = [ "fmask=0022" "dmask=0022" ];
   };

@@ -2,7 +2,9 @@
 {
   imports = [ ./obs-studio.nix ];
   # Required by Home Manager; set once and bump only after reading release notes.
-  home.stateVersion = "25.05";
+  home.stateVersion = "26.05";
+  # Disable version check when using development branches (Home Manager master + nixos-unstable)
+  home.enableNixpkgsReleaseCheck = false;
   
   # Autostart seafile-client
   systemd.user.services.seafile-client = {
