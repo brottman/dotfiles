@@ -379,6 +379,11 @@ Footer > .footer--description {
 class ConfirmDialog(ModalScreen[bool]):
     """A confirmation dialog."""
     
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel", show=False),
+        Binding("c", "cancel", "Cancel", show=False),
+    ]
+    
     def __init__(self, title: str, message: str) -> None:
         super().__init__()
         self.dialog_title = title
@@ -392,12 +397,18 @@ class ConfirmDialog(ModalScreen[bool]):
                 yield Button("Cancel", variant="default", id="cancel")
                 yield Button("Confirm", variant="error", id="confirm")
     
+    def action_cancel(self) -> None:
+        """Cancel action - dismiss with False."""
+        self.dismiss(False)
+    
     @on(Button.Pressed, "#cancel")
-    def cancel(self) -> None:
+    def cancel_button(self) -> None:
+        """Cancel button pressed."""
         self.dismiss(False)
     
     @on(Button.Pressed, "#confirm")
     def confirm(self) -> None:
+        """Confirm button pressed."""
         self.dismiss(True)
 
 
