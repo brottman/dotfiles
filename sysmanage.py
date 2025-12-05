@@ -1147,6 +1147,24 @@ echo "                    NIXOS MACHINES STATUS"
 echo "══════════════════════════════════════════════════════════════"
 echo ""
 
+# Helper function to get uptime reliably
+get_uptime() {
+    if uptime -p 2>/dev/null; then
+        return 0
+    fi
+    # Fallback: parse /proc/uptime
+    if [ -r /proc/uptime ]; then
+        read -r sec _ < /proc/uptime
+        sec=${sec%%.*}
+        d=$((sec/86400))
+        h=$(((sec%86400)/3600))
+        m=$(((sec%3600)/60))
+        printf "up %d days, %d hours, %d minutes" "$d" "$h" "$m"
+        return 0
+    fi
+    echo "unknown"
+}
+
 CURRENT_HOST=$(hostname)
 
 for machine in brian-laptop superheavy backup docker; do
@@ -1157,7 +1175,7 @@ for machine in brian-laptop superheavy backup docker; do
     if [ "$machine" = "$CURRENT_HOST" ]; then
         VERSION=$(nixos-version 2>/dev/null || echo "unknown")
         KERNEL=$(uname -r)
-        UPTIME=$(uptime -p 2>/dev/null || echo "unknown")
+        UPTIME=$(get_uptime)
         LAST_CHANGE=$(stat -c %y /run/current-system 2>/dev/null | cut -d. -f1 || echo "unknown")
         GEN=$(readlink /nix/var/nix/profiles/system 2>/dev/null | grep -oE "[0-9]+" | tail -1 || echo "?")
         
@@ -1231,7 +1249,7 @@ for machine in brian-laptop superheavy backup docker; do
             # SSH authentication successful - get system info
             VERSION=$(ssh $SSH_OPTS "$MACHINE_TARGET" nixos-version 2>/dev/null || echo "unknown")
             KERNEL=$(ssh $SSH_OPTS "$MACHINE_TARGET" uname -r 2>/dev/null || echo "unknown")
-            UPTIME=$(ssh $SSH_OPTS "$MACHINE_TARGET" uptime -p 2>/dev/null || echo "unknown")
+            UPTIME=$(ssh $SSH_OPTS "$MACHINE_TARGET" "$(declare -f get_uptime); get_uptime" 2>/dev/null || echo "unknown")
             LAST_CHANGE=$(ssh $SSH_OPTS "$MACHINE_TARGET" 'stat -c %y /run/current-system 2>/dev/null | cut -d. -f1' || echo "unknown")
             GEN=$(ssh $SSH_OPTS "$MACHINE_TARGET" 'readlink /nix/var/nix/profiles/system | grep -oE "[0-9]+" | tail -1' 2>/dev/null || echo "?")
             
