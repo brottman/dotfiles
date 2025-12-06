@@ -100,7 +100,7 @@
   systemd.services.critical-service-monitor = {
     description = "Monitor critical services and alert if down";
     script = ''
-      CRITICAL_SERVICES=("samba" "postfix" "docker" "zfs-scrub-monitor.timer")
+      CRITICAL_SERVICES=("smb" "postfix" "docker" "zfs-scrub-monitor.timer")
       FAILED_SERVICES=()
       HOSTNAME=$(hostname)
       TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
@@ -150,7 +150,7 @@
   };
 
   # Override critical services to notify on failure
-  systemd.services.samba.onFailure = [ "service-failure-handler.service" ];
+  systemd.services.smb.onFailure = [ "service-failure-handler.service" ];
   systemd.services.postfix.onFailure = [ "service-failure-handler.service" ];
   systemd.services.docker.onFailure = [ "service-failure-handler.service" ];
 }

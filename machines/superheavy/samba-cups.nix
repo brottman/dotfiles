@@ -87,8 +87,8 @@
   # Set Samba password from SOPS secret
   systemd.services.samba-set-password = {
     description = "Set Samba password for brian user";
-    after = [ "samba.service" "network.target" ];
-    wants = [ "samba.service" ];
+    after = [ "smb.service" "network.target" ];
+    wants = [ "smb.service" ];
     wantedBy = [ "multi-user.target" ];
     serviceConfig = {
       Type = "oneshot";

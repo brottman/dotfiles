@@ -177,6 +177,7 @@
 
   # Additional packages for laptop
   environment.systemPackages = with pkgs; [
+    android-studio
     anki
     antigravity
     appimage-run
@@ -189,6 +190,7 @@
     dtrx # file extractor
     exiftool
     ffmpeg
+    flutter
     filezilla
     fsearch
     gimp
